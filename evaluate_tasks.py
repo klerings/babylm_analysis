@@ -10,42 +10,103 @@ import torch.nn.functional as F
 import numpy as np
 from PIL import Image
 import gc
+import re
 
 
-def load_blimp(task, n_samples=32):
+def load_blimp(task, n_samples=32, load_all=False):
     final_samples = {}
     file_dir = f"../evaluation-pipeline-2024/evaluation_data/{task}/"
     subtasks = [file_dir + f for f in os.listdir(file_dir)]
     datasets = []
+    n_subtasks = 67 if task == "blimp_filtered" else 5
+    n_samples_subtask = max(int(round(n_samples/n_subtasks)),1)
     for subtask in subtasks:
         ds = load_dataset(path="json", name=None, data_files=subtask)["train"]
-        datasets.append(ds.select(range(n_samples)))
+        shuffled_ds = ds.shuffle(seed=42)
+        if load_all:
+            datasets.append(shuffled_ds)
+        elif n_samples_subtask < len(shuffled_ds):
+            datasets.append(shuffled_ds.select(range(n_samples_subtask)))
+        else:
+            datasets.append(shuffled_ds)
     full_dataset = concatenate_datasets(datasets)
     for i, sample in enumerate(full_dataset):
         final_samples[i] = sample
         final_samples[i]["prompts"] = [("", f" {sample['sentence_good']}"), ("", f" {sample['sentence_bad']}")]
     return final_samples
 
+def split_options2(question):
+    q = question.replace("Question:", "")
+    q = re.sub(r"Hint:.+?\n", "", q)
+    parts = re.split(r"\(A\)|\(B\)|\(C\)|\(D\)", q)
+    quest = parts[0].strip().replace("Choices:", "").replace("Options:", "").strip()
+    opts = [o.strip().rstrip(",.") for o in parts[1:]]
+    assert len(opts) >= 3 and len(opts) < 5, question
+    return (quest.strip(), opts)
 
-def load_vl_data(task="vqa", n_samples=32):
+def split_options(question):
+    if "Choices:" in question:
+        #print(split_options2(question))
+        #exit()
+        return split_options2(question)
+    q = question.replace("Question:", "")
+    q = re.sub(r"Hint:.+?\n", "", question)
+    parts = re.split(r"A: |B: |C: |D: ", q)
+    quest = parts[0].strip().replace("Options:", "").strip()
+    opts = [o.strip().rstrip(",.") for o in parts[1:]]
+    if not len(opts) >= 3 or not len(opts) < 5:
+        return split_options2(question)
+    return (quest.strip(), opts)
+
+def load_mmstar(n_samples):
+    data = load_dataset("Lin-Chen/MMStar")["val"]
+    if n_samples < len(data):
+        data = data.select(range(n_samples))
+    final_samples = {}
+    for i, sample in enumerate(tqdm(data)):
+        question, options = split_options(sample['question'])
+        answer_idx = ord(sample["answer"])-ord("A")
+        sample['question'] = question
+        ordered_options = [options.pop(answer_idx)] + options[:4]
+
+        final_samples[i] = sample
+        final_samples[i]["prompts"] = []
+        for oo in ordered_options:
+            final_samples[i]["prompts"].append(transform_qa(question, oo))
+    
+    return final_samples
+        
+
+
+def load_vl_data(task="vqa", n_samples=32, local=False):
     if task == "vqa":
         hf_path = "HuggingFaceM4/VQAv2"
         hf_split = "validation"
-        local_file = "data/vqa_filtered/vqa_distractors_info.json"
+        local_file = f"data/vqa_filtered/vqa_distractors_info.json"
     elif task == "winoground":
         hf_path = "facebook/winoground"
         hf_split = "test"
-        local_file = "data/winoground_filtered/winoground.jsonl"
+        local_file = f"data/winoground_filtered/winoground.jsonl"
     
     # load huggingface dataset with images
-    hf_ds = load_dataset(hf_path)[hf_split]
+    if not local:
+        hf_ds = load_dataset(hf_path, cache_dir="/home/ma/ma_ma/ma_aklering/gpfs/ma_aklering-babylm2/.cache/")[hf_split]
+    else:
+        hf_ds = load_dataset(hf_path)[hf_split]
+
+    print("loaded huggingface DS")
         
     # load dataset with distractors from json
     distractor_ds = load_dataset(path="json", name=None, data_files=local_file)["train"]
 
+    print("loaded local DS")
+    shuffled_distractors = distractor_ds.shuffle(seed=42)
+    if n_samples < len(shuffled_distractors) and n_samples > 0:
+        shuffled_distractors = shuffled_distractors.select(range(n_samples))
+
     # merge datasets by adding distractor info from json to hf dataset samples
     samples = []
-    for sample in tqdm(distractor_ds.select(range(n_samples))):
+    for sample in tqdm(shuffled_distractors):
         if task == "vqa":
             # add distractor info from json to hf dataset sample
             img_sample = hf_ds[sample["idx_in_hf_dataset"]] 
@@ -81,9 +142,12 @@ def load_vl_data(task="vqa", n_samples=32):
 def transform_qa(question, answer):
     return f"Question: {question} Answer:", f" {answer}"
 
-def load_model(setting, epoch):
+def load_model(setting, epoch, local=False):
     # Add the directory containing the modules to the Python path
-    model_path = f"../babylm_GIT/models2/{setting}/epoch{epoch}/"
+    if local:
+        model_path = f"../babylm_GIT/models2/{setting}/epoch{epoch}/"
+    else:
+        model_path = f"../babylm_GIT/models_for_eval/{setting}/epoch{epoch}/"
 
     module_path = os.path.abspath(os.path.join(model_path))
     sys.path.append(module_path)
@@ -91,17 +155,22 @@ def load_model(setting, epoch):
     from configuration_git import GitConfig
     from modeling_git import GitForCausalLM
 
-    config = GitConfig.from_pretrained(model_path) #, trust_remote_code=True)
-    model = GitForCausalLM.from_pretrained(model_path) #, config=config, trust_remote_code=True)
+    config = GitConfig.from_pretrained(model_path, trust_remote_code=True)
+    model = GitForCausalLM.from_pretrained(model_path, config=config, trust_remote_code=True)
     tokenizer = AutoTokenizer.from_pretrained(model_path, trust_remote_code=True)
 
     ckpt = torch.load(model_path + "pytorch_model.bin") # TODO: embeddings.position_ids not needed
     model.load_state_dict(ckpt, strict=False)  # or adjust the key if needed
 
-    image_processor = AutoProcessor.from_pretrained(
-                        model_path,
-                        trust_remote_code=True
-                    )
+    if setting.startswith("base_git"):
+        print("loading processor")
+        image_processor = AutoProcessor.from_pretrained(
+                            model_path,
+                            trust_remote_code=True
+                        )
+    else:
+        print("shouldn't load processor")
+        image_processor = None
 
     device = torch.device("cuda")
     model.to(device)
@@ -167,12 +236,12 @@ def eot_token_id(tokenizer):
 def prepare_sample(prompt, image, tokenizer, image_processor, padding_len_inp, mode, task):
     max_length = 1024
     context, continuation = prompt
-    if task == "vqa":
+    if task in ["vqa","mmstar"]:
         whole_enc = tokenizer.encode(context + continuation, add_special_tokens=False)
         context_enc = tokenizer.encode(context, add_special_tokens=False)
         context_enc_len = len(context_enc)
         continuation_enc = whole_enc[context_enc_len:]
-    elif task in ["winoground", "blimp_filtered", "blimp_supplement"]:
+    elif task in ["winoground", "blimp_filtered", "supplement_filtered"]:
         tokenizer, prefix_token_id = eot_token_id(tokenizer)
         context_enc = [prefix_token_id]
         continuation_enc = tokenizer.encode(continuation, add_special_tokens=False)
@@ -298,37 +367,50 @@ def run_eval(samples, model, image_processor, tokenizer, mode, task, batch_size=
 
 
 if __name__ == "__main__":
-    setting = "base_git_1vd125_s1"
-    epoch = 4
-    subset_size = 20
-    batch_size = 16
+    epoch = 23
+    subset_size = 1000
+    batch_size = 64
+    local=False
 
-    task = "vqa" #"blimp_filtered" #"winoground" # "vqa"
+    txt_only_tasks = ["blimp_filtered", "supplement_filtered"]
+    vl_tasks = ["mmstar","vqa", "winoground"]
+    tasks = vl_tasks + txt_only_tasks
 
-    if task in ["blimp_filtered", "blimp_supplement"]:
-        samples = load_blimp(task, n_samples=subset_size)
-    else:
-        samples = load_vl_data(task, n_samples=subset_size)
-    
-    model, image_processor, tokenizer = load_model(setting, epoch)
+    for setting in ["base_git_1vd125_s1","base_noimg_1vd25_s3"]:
 
-    """acc_with_img = run_eval(samples, model, image_processor, tokenizer, mode="with_img",  task=task, batch_size=batch_size)
-    print(f"with img: {acc_with_img}")
-    
-    torch.cuda.empty_cache()
-    gc.collect()
+        model, image_processor, tokenizer = load_model(setting, epoch, local)
 
-    acc_with_noise = run_eval(samples, model, image_processor, tokenizer, mode="with_noise",  task=task, batch_size=batch_size)
-    print(f"with noise: {acc_with_noise}")
+        for task in tasks:
 
-    torch.cuda.empty_cache()
-    gc.collect()"""
+            print(f"\n{setting} - {task}")
 
-    acc_no_img = run_eval(samples, model, image_processor, tokenizer, mode="txt_only", task=task, batch_size=batch_size)
-    print(f"no img: {acc_no_img}")
+            if task in txt_only_tasks:
+                samples = load_blimp(task, n_samples=subset_size)
+            elif task == "mmstar":
+                samples = load_mmstar(n_samples=subset_size)
+            else:
+                samples = load_vl_data(task, n_samples=subset_size, local=local)
+            
+            acc_no_img = run_eval(samples, model, image_processor, tokenizer, mode="txt_only", task=task, batch_size=batch_size)
+            print(f"-> no img: {acc_no_img}")
 
-    torch.cuda.empty_cache()
-    gc.collect()
+            torch.cuda.empty_cache()
+            gc.collect()
+
+            if setting.startswith("base_git") and task not in txt_only_tasks:
+
+                acc_with_img = run_eval(samples, model, image_processor, tokenizer, mode="with_img",  task=task, batch_size=batch_size)
+                print(f"-> with img: {acc_with_img}")
+                
+                torch.cuda.empty_cache()
+                gc.collect()
+
+                acc_with_noise = run_eval(samples, model, image_processor, tokenizer, mode="with_noise",  task=task, batch_size=batch_size)
+                print(f"-> with noise: {acc_with_noise}")
+
+                torch.cuda.empty_cache()
+                gc.collect()
+        
 
 
 
