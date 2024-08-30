@@ -132,6 +132,9 @@ def load_blimp_examples(tokenizer, pad_to_length, n_samples):
     suitable_samples = []
     for sample_id, sample in samples.items():
         if sample["one_prefix_method"] is True:
+            # catch samples with errors (i.e. two same sentences)
+            if sample["sentence_good"] == sample["sentence_bad"]:
+                continue
             # sanity check
             sent_good = sample["sentence_good"].split()
             sent_bad = sample["sentence_bad"].split()
@@ -177,6 +180,8 @@ def load_blimp_examples(tokenizer, pad_to_length, n_samples):
                 continue
             # left padding: reverse, right-pad, reverse
             clean_prefix = t.flip(F.pad(t.flip(clean_prefix, (1,)), (0, pad_length), value=tokenizer.pad_token_id), (1,))
+            # left padding: reverse, right-pad, reverse
+            patch_prefix = t.flip(F.pad(t.flip(patch_prefix, (1,)), (0, pad_length), value=tokenizer.pad_token_id), (1,))
 
         example_dict = {"clean_prefix": clean_prefix,
                             "clean_answer": clean_answer.item(),

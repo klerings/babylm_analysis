@@ -11,6 +11,7 @@ import numpy as np
 from PIL import Image
 import gc
 import re
+import importlib.util
 
 
 def load_blimp(task, n_samples=32, load_all=False):
@@ -144,32 +145,29 @@ def transform_qa(question, answer):
 
 def load_model(setting, epoch, local=False):
     # Add the directory containing the modules to the Python path
-    if local:
-        model_path = f"../babylm_GIT/models2/{setting}/epoch{epoch}/"
-    else:
-        model_path = f"../babylm_GIT/models_for_eval/{setting}/epoch{epoch}/"
+    model_path = f"../babylm_GIT/{'models_for_eval' if not local else 'models2'}/base_{setting}/epoch{epoch}/"
+    if not os.path.exists(model_path+"pytorch_model.bin"):
+        return None, None, None
+    spec = importlib.util.spec_from_file_location("GitForCausalLM", f"{model_path}modeling_git.py")
+    git_module = importlib.util.module_from_spec(spec)
+    sys.modules["git_module"] = git_module
+    spec.loader.exec_module(git_module)
+    GitForCausalLM = git_module.GitForCausalLM
 
-    module_path = os.path.abspath(os.path.join(model_path))
-    sys.path.append(module_path)
+    model = GitForCausalLM.from_pretrained(model_path) 
+    ckpt = torch.load(model_path + "pytorch_model.bin") # TODO: newly initialized for vision encoder: ['pooler.dense.bias', 'pooler.dense.weight']
+    model.load_state_dict(ckpt, strict=False)  
 
-    from configuration_git import GitConfig
-    from modeling_git import GitForCausalLM
-
-    config = GitConfig.from_pretrained(model_path, trust_remote_code=True)
-    model = GitForCausalLM.from_pretrained(model_path, config=config, trust_remote_code=True)
     tokenizer = AutoTokenizer.from_pretrained(model_path, trust_remote_code=True)
 
-    ckpt = torch.load(model_path + "pytorch_model.bin") # TODO: embeddings.position_ids not needed
-    model.load_state_dict(ckpt, strict=False)  # or adjust the key if needed
-
-    if setting.startswith("base_git"):
+    if setting.startswith("git"):
         print("loading processor")
         image_processor = AutoProcessor.from_pretrained(
                             model_path,
                             trust_remote_code=True
                         )
     else:
-        print("shouldn't load processor")
+        print("not loading processor")
         image_processor = None
 
     device = torch.device("cuda")
@@ -367,49 +365,54 @@ def run_eval(samples, model, image_processor, tokenizer, mode, task, batch_size=
 
 
 if __name__ == "__main__":
-    epoch = 23
-    subset_size = 1000
+    subset_size = -1
     batch_size = 64
     local=False
 
     txt_only_tasks = ["blimp_filtered", "supplement_filtered"]
-    vl_tasks = ["mmstar","vqa", "winoground"]
-    tasks = vl_tasks + txt_only_tasks
+    vl_tasks = ["mmstar", "vqa", "winoground"]
+    tasks = ["vqa"]    #vl_tasks + txt_only_tasks
 
-    for setting in ["base_git_1vd125_s1","base_noimg_1vd25_s3"]:
+    settings = ["git_1v1_s1", "git_1vd5_s1", "git_1vd25_s1", "git_1vd125_s1", "git_1v1_s2", "git_1vd5_s2", "git_1vd25_s2", "git_1vd125_s2", "git_1v1_s3", "git_1vd5_s3", "git_1vd25_s3", "git_1vd125_s3"]
 
-        model, image_processor, tokenizer = load_model(setting, epoch, local)
+    for setting in settings:
+        for epoch in range(1,31):
 
-        for task in tasks:
+            model, image_processor, tokenizer = load_model(setting, epoch, local)
+            if model is None:
+                print(f"skipping: {setting} - {epoch}")
+                continue
 
-            print(f"\n{setting} - {task}")
+            for task in tasks:
 
-            if task in txt_only_tasks:
-                samples = load_blimp(task, n_samples=subset_size)
-            elif task == "mmstar":
-                samples = load_mmstar(n_samples=subset_size)
-            else:
-                samples = load_vl_data(task, n_samples=subset_size, local=local)
-            
-            acc_no_img = run_eval(samples, model, image_processor, tokenizer, mode="txt_only", task=task, batch_size=batch_size)
-            print(f"-> no img: {acc_no_img}")
-
-            torch.cuda.empty_cache()
-            gc.collect()
-
-            if setting.startswith("base_git") and task not in txt_only_tasks:
-
-                acc_with_img = run_eval(samples, model, image_processor, tokenizer, mode="with_img",  task=task, batch_size=batch_size)
-                print(f"-> with img: {acc_with_img}")
+                if task in txt_only_tasks:
+                    samples = load_blimp(task, n_samples=subset_size)
+                elif task == "mmstar":
+                    samples = load_mmstar(n_samples=subset_size)
+                else:
+                    samples = load_vl_data(task, n_samples=subset_size, local=local)
                 
-                torch.cuda.empty_cache()
-                gc.collect()
-
-                acc_with_noise = run_eval(samples, model, image_processor, tokenizer, mode="with_noise",  task=task, batch_size=batch_size)
-                print(f"-> with noise: {acc_with_noise}")
+                acc_no_img = run_eval(samples, model, image_processor, tokenizer, mode="txt_only", task=task, batch_size=batch_size)
+                print(f"\n{setting} - {task}")
+                print(f"-> no img: {acc_no_img}")
 
                 torch.cuda.empty_cache()
                 gc.collect()
+
+                if setting.startswith("git") and task not in txt_only_tasks:
+
+                    acc_with_img = run_eval(samples, model, image_processor, tokenizer, mode="with_img",  task=task, batch_size=batch_size)
+                    print(f"\n{setting} - {task}")
+                    print(f"-> with img: {acc_with_img}")
+                    
+                    torch.cuda.empty_cache()
+                    gc.collect()
+
+                    #acc_with_noise = run_eval(samples, model, image_processor, tokenizer, mode="with_noise",  task=task, batch_size=batch_size)
+                    #print(f"-> with noise: {acc_with_noise}")
+
+                    #torch.cuda.empty_cache()
+                    #gc.collect()
         
 
 
