@@ -145,7 +145,10 @@ def transform_qa(question, answer):
 
 def load_model(setting, epoch, local=False):
     # Add the directory containing the modules to the Python path
-    model_path = f"../babylm_GIT/{'models_for_eval' if not local else 'models2'}/base_{setting}/epoch{epoch}/"
+    if local:
+        model_path = f"../babylm_GIT/models2/base_{setting}/epoch{epoch}/"
+    else:
+        model_path = f"/home/ma/ma_ma/ma_aklering/gpfs/ma_aklering-babylm2/babylm_GIT/models_for_eval/base_{setting}/epoch{epoch}/"
     if not os.path.exists(model_path+"pytorch_model.bin"):
         return None, None, None
     spec = importlib.util.spec_from_file_location("GitForCausalLM", f"{model_path}modeling_git.py")
