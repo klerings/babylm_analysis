@@ -408,7 +408,7 @@ if __name__ == "__main__":
                 if setting.startswith("git") and task not in txt_only_tasks:
 
                     acc_with_img = run_eval(samples, model, image_processor, tokenizer, mode="with_img",  task=task, batch_size=batch_size)
-                    print(f"\n{setting} - {task}")
+                    print(f"\n{setting} - {epoch} - {task}")
                     print(f"-> with img: {acc_with_img}")
                     
                     torch.cuda.empty_cache()
