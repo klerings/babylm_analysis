@@ -417,8 +417,8 @@ if __name__ == "__main__":
     print("loaded samples")
 
     # precompute mean activations on task or retrieve precomputed activation files
+    prefix = f"{task}_{model_path}_e{epoch}_n{num_examples if num_examples != -1 else 'all'}{'_noimg' if noimg else ''}"
     if task != "blimp":
-        prefix = f"{task}_{model_path}_e{epoch}_n{num_examples if num_examples != -1 else 'all'}{'_noimg' if noimg else ''}"
         mean_act_files = []
         for file in os.listdir("mean_activations/"):
             if file.startswith(prefix+"_mean_acts"):
