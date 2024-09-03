@@ -412,7 +412,7 @@ if __name__ == "__main__":
         examples = load_vqa_examples(tokenizer, img_processor, pad_to_length=pad_len, n_samples=num_examples, local=local)
         subtask_key = "question_type"
     elif task == "blimp":
-        examples = load_blimp_examples(tokenizer, pad_to_length=pad_len, n_samples=num_examples)
+        examples = load_blimp_examples(tokenizer, pad_to_length=pad_len, n_samples=num_examples, local=local)
         subtask_key = "linguistics_term"
         mean_act_files=None
     else:

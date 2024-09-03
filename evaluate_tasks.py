@@ -14,9 +14,12 @@ import re
 import importlib.util
 
 
-def load_blimp(task, n_samples=32, load_all=False):
+def load_blimp(task, n_samples=32, load_all=False, local=True):
     final_samples = {}
-    file_dir = f"../evaluation-pipeline-2024/evaluation_data/{task}/"
+    if local:
+        file_dir = f"../evaluation-pipeline-2024/evaluation_data/{task}/"
+    else:
+        file_dir = f"/home/ma/ma_ma/ma_aklering/gpfs/ma_aklering-babylm2/evaluation-pipeline-2024/evaluation_data/{task}/"
     subtasks = [file_dir + f for f in os.listdir(file_dir)]
     datasets = []
     n_subtasks = 67 if task == "blimp_filtered" else 5

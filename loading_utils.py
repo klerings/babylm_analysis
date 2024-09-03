@@ -126,8 +126,8 @@ def load_vqa_examples(tokenizer, img_processor, pad_to_length, n_samples, local)
         
     return examples
 
-def load_blimp_examples(tokenizer, pad_to_length, n_samples):
-    samples = load_blimp(task="blimp_filtered", load_all=True)
+def load_blimp_examples(tokenizer, pad_to_length, n_samples, local):
+    samples = load_blimp(task="blimp_filtered", load_all=True, local=local)
     # identify suitable sentences for attribution patching
     suitable_samples = []
     for sample_id, sample in samples.items():
