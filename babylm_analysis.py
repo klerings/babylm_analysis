@@ -25,7 +25,10 @@ from memory_profiler import profile
 
 def load_model(model_path, epoch, own_model=True, local=False):
     if own_model:
-        model_path = f"../babylm_GIT/{'models_for_eval' if not local else 'models2'}/base_{model_path}/epoch{epoch}/"
+        if local:
+            model_path = f"../babylm_GIT/models2/base_{model_path}/epoch{epoch}/"
+        else:
+            model_path = f"/home/ma/ma_ma/ma_aklering/gpfs/ma_aklering-babylm2/babylm_GIT/models_for_eval/base_{model_path}/epoch{epoch}/"
         spec = importlib.util.spec_from_file_location("GitForCausalLM", f"{model_path}modeling_git.py")
         git_module = importlib.util.module_from_spec(spec)
         sys.modules["git_module"] = git_module
