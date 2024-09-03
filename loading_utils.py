@@ -252,6 +252,7 @@ def load_winoground_examples(tokenizer, img_processor, pad_to_length, n_samples,
                         "incorrect_idx": incorrect_idx,
                         "tag": sample["tag"],
                         "collapsed_tag": sample["collapsed_tag"],
+                        "secondary_tag": sample["secondary_tag"],
                         "pixel_values": pixel_values,
                         "prefix_length_wo_pad": prefix_length_wo_pad}
         examples.append(example_dict)

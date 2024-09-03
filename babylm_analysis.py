@@ -11,7 +11,7 @@ import torch
 from torch.cuda.amp import autocast
 from datasets import load_dataset
 
-from loading_utils import load_vqa_examples, load_blimp_examples
+from loading_utils import load_vqa_examples, load_blimp_examples, load_winoground_examples
 
 from transformers import AutoProcessor, AutoTokenizer
 from nnsight import NNsight
@@ -308,10 +308,10 @@ def get_important_neurons(examples, batch_size, mlps, pad_len, mean_act_files, t
     sum_effects = {}
 
     for batch in tqdm(batches):
-        clean_answer_idxs = t.tensor([e['clean_answer'] for e in batch], dtype=t.long, device=device)
         clean_inputs = t.cat([e['clean_prefix'] for e in batch], dim=0).to(device)
 
         if task == "vqa":
+            clean_answer_idxs = t.tensor([e['clean_answer'] for e in batch], dtype=t.long, device=device)
             if noimg:
                 img_inputs = None
             else:
@@ -342,8 +342,8 @@ def get_important_neurons(examples, batch_size, mlps, pad_len, mean_act_files, t
         
         elif task == "blimp":
             img_inputs = None
+            clean_answer_idxs = t.tensor([e['clean_answer'] for e in batch], dtype=t.long, device=device)
             patch_inputs = t.cat([e['patch_prefix'] for e in batch], dim=0).to(device)
-            
             patch_answer_idxs = t.tensor([e['patch_answer'] for e in batch], dtype=t.long, device=device)
 
             def metric(model):
@@ -359,6 +359,38 @@ def get_important_neurons(examples, batch_size, mlps, pad_len, mean_act_files, t
                 patch_inputs,
                 model,
                 mlps,
+                metric,
+                pad_len,
+                steps=10,
+                metric_kwargs=dict())
+        
+        elif task == "winoground":
+            if noimg:
+                img_inputs = None
+            else:
+                img_inputs = t.cat([e['pixel_values'] for e in batch], dim=0).to(device)
+
+            correct_idxs = [e["correct_idx"] for e in batch]
+            incorrect_idxs = [e["incorrect_idx"] for e in batch]
+
+            def metric(model):
+                correct_sent_logits = []
+                incorrect_sent_logits = []
+                for i, (idx, cf_idx) in enumerate(zip(correct_idxs, incorrect_idxs)):
+                    logits = torch.gather(model.output.output[i,:,:], dim=1, index=t.tensor([idx]).to("cuda")).squeeze(-1) # [1, seq]
+                    cf_logits = torch.gather(model.output.output[i,:,:], dim=1, index=t.tensor([cf_idx]).to("cuda")).squeeze(-1) # [1, seq]
+                    correct_sent_logits.append(logits.sum().unsqueeze(0))
+                    incorrect_sent_logits.append(cf_logits.sum().unsqueeze(0))
+                correct_sent_logits = torch.cat(correct_sent_logits, dim=0)
+                incorrect_sent_logits = torch.cat(incorrect_sent_logits, dim=0)
+                return incorrect_sent_logits-correct_sent_logits
+            
+            effects, _, _ = _pe_ig(
+                clean_inputs,
+                img_inputs,
+                model,
+                mlps,
+                mean_act_files,
                 metric,
                 pad_len,
                 steps=10,
@@ -418,6 +450,9 @@ if __name__ == "__main__":
         examples = load_blimp_examples(tokenizer, pad_to_length=pad_len, n_samples=num_examples, local=local)
         subtask_key = "linguistics_term"
         mean_act_files=None
+    elif task == "winoground":
+        examples = load_winoground_examples(tokenizer, img_processor, pad_to_length=pad_len, n_samples=num_examples, local=local)
+        subtask_key = "secondary_tag"
     else:
         print(f"{task} is not implemented")
     print("loaded samples")
@@ -429,7 +464,7 @@ if __name__ == "__main__":
         for file in os.listdir("mean_activations/"):
             if file.startswith(prefix+"_mean_acts"):
                 mean_act_files.append(f"mean_activations/{file}")
-        if len(mean_act_files) == 0:
+        if len(mean_act_files) != len(mlps):
             mean_act_files = compute_mean_activations(examples, model, mlps, batch_size=128, noimg=noimg, file_prefix=prefix)
             print(f"computed mean activations")
         else:
