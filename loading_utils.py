@@ -76,6 +76,7 @@ def load_vqa_examples(tokenizer, img_processor, pad_to_length, n_samples, local)
     samples = load_vl_data(task="vqa", n_samples=n_samples*10, local=local)
     examples = []
     eos_token_id = tokenizer.convert_tokens_to_ids("</s>")
+    lookup = parse_vqa_qtypes()
     for sample_id, sample in samples.items():
         clean_tokens = tokenizer(sample["question"], return_tensors="pt",
                                         padding=False)
@@ -117,7 +118,7 @@ def load_vqa_examples(tokenizer, img_processor, pad_to_length, n_samples, local)
         example_dict = {"clean_prefix": clean_prefix,
                             "clean_answer": clean_answer.item(),
                             "distractors": prepared_distractors,
-                            "question_type": sample["question_type"],
+                            "question_type": lookup[sample["question_type"]],
                             "prefix_length_wo_pad": prefix_length_wo_pad,
                             "pixel_values": pixel_values}
         examples.append(example_dict)
@@ -323,3 +324,13 @@ def get_annotation(dataset, model, data):
         annotations[template_word] = span
     
     return annotations
+
+
+def parse_vqa_qtypes():
+    with open("vqa_superclasses.txt", "r") as f:
+        lines = f.readlines()
+        mapping = {}
+        for l in lines:
+            parts = l.split("-")
+            mapping[parts[0].strip()] = parts[1].strip()
+    return mapping

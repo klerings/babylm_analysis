@@ -412,8 +412,8 @@ if __name__ == "__main__":
         top_neurons = get_important_neurons(examples, batch_size, mlps, pad_len, mean_act_files, task=task, noimg=noimg)
         print(f"finished subtask: {subtask}")
 
-        out_dir = f"data/top_neurons/{task}/{prefix}/"
+        out_dir = f"data/top_neurons/{task if task != 'vqa' else 'vqa_new'}/{prefix}/"
         if not os.path.exists(out_dir):
             os.makedirs(out_dir)
-        with open(f"data/top_neurons/{task}/{prefix}/{subtask}_top_neurons.pkl", "wb") as f:
+        with open(f"data/top_neurons/{task if task != 'vqa' else 'vqa_new'}/{prefix}/{subtask}_top_neurons.pkl", "wb") as f:
             pickle.dump(top_neurons, f)

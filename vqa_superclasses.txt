@@ -1,0 +1,62 @@
+is this - verification and existence
+what is the - general queries and miscellaneous
+do you - verification and existence
+what - general queries and miscellaneous
+what is - general queries and miscellaneous
+can you - action and state
+is the woman - person and object identification
+what color is the - color identification
+are the - verification and existence
+is the - verification and existence
+is this a - identification and classification
+is it - verification and existence
+what kind of - identification and classification
+is the man - person and object identification
+none of the above - general queries and miscellaneous
+what color are the - color identification
+what color - color identification
+what sport is - identification and classification
+was - temporal information
+is there - verification and existence
+is there a - verification and existence
+are they - verification and existence
+which - identification and classification
+has - verification and existence
+do - verification and existence
+where is the - spatial and positional information
+what type of - identification and classification
+are there any - verification and existence
+what does the - action and state
+does this - verification and existence
+is this an - identification and classification
+is that a - identification and classification
+what is this - identification and classification
+are these - verification and existence
+is - verification and existence
+are - verification and existence
+what is in the - spatial and positional information
+what animal is - identification and classification
+how - action and state
+does the - verification and existence
+are there - verification and existence
+is this person - person and object identification
+why - reason and purpose
+what color is - color identification
+what is the man - person and object identification
+what time - temporal information
+is he - person and object identification
+what room is - spatial and positional information
+what are - general queries and miscellaneous
+what is the color of the - color identification
+where are the - spatial and positional information
+what are the - general queries and miscellaneous
+what is on the - spatial and positional information
+could - action and state
+who is - person and object identification
+is the person - person and object identification
+what is the name - person and object identification
+what is the person - person and object identification
+what is the woman - person and object identification
+how many - quantity and counting
+what brand - identification and classification
+why is the - reason and purpose
