@@ -275,7 +275,7 @@ def _pe_ig_patch(
                 f.retain_grad()
                 fs.append(f)
                 with tracer.invoke(clean, scan=tracer_kwargs['scan']):
-                    submodule.output = f[:,-pad_len:,:]
+                    submodule.output = f
                     metrics.append(metric_fn(model, **metric_kwargs))
                 
             metric = sum([m for m in metrics])
@@ -299,7 +299,7 @@ def _pe_ig_patch(
     
     return (effects, deltas, grads)
 
-def get_important_neurons(examples, batch_size, mlps, pad_len, mean_act_files, task):
+def get_important_neurons(examples, batch_size, mlps, pad_len, mean_act_files, task, noimg):
     # uses attribution patching to identify most important neurons for subtask
     num_examples = len(examples)
     batches = [examples[i:min(i + batch_size, num_examples)] for i in range(0, num_examples, batch_size)]
@@ -312,7 +312,10 @@ def get_important_neurons(examples, batch_size, mlps, pad_len, mean_act_files, t
         clean_inputs = t.cat([e['clean_prefix'] for e in batch], dim=0).to(device)
 
         if task == "vqa":
-            img_inputs = t.cat([e['pixel_values'] for e in batch], dim=0).to(device)
+            if noimg:
+                img_inputs = None
+            else:
+                img_inputs = t.cat([e['pixel_values'] for e in batch], dim=0).to(device)
 
             first_distractor_idxs = t.tensor([e['distractors'][0] for e in batch], dtype=t.long, device=device)
 
@@ -454,7 +457,7 @@ if __name__ == "__main__":
 
     # for each subtask, compute top neurons and save
     for subtask, examples in final_subtasks.items():
-        top_neurons = get_important_neurons(examples, batch_size, mlps, pad_len, mean_act_files, task=task)
+        top_neurons = get_important_neurons(examples, batch_size, mlps, pad_len, mean_act_files, task=task, noimg=noimg)
         print(f"finished subtask: {subtask}")
 
         out_dir = f"data/top_neurons/{task}/{prefix}/"
