@@ -219,86 +219,6 @@ def _pe_ig(
     
     return (effects, deltas, grads)
 
-def _pe_ig_patch(
-        clean,
-        patch,
-        model,
-        submodules,
-        metric_fn,
-        pad_len,
-        steps=10,
-        metric_kwargs=dict()):
-    tracer_kwargs = {'validate' : False, 'scan' : False}
-    
-    # clean run -> model can be approximated through linear function of its activations
-    hidden_states_clean = {}
-    with model.trace(clean, **tracer_kwargs), t.no_grad():
-        for submodule in submodules:
-            x = submodule.output
-            hidden_states_clean[submodule] = x.save()
-        metric_clean = metric_fn(model, **metric_kwargs).save()
-
-    hidden_states_clean = {k : v.value for k, v in hidden_states_clean.items()}
-
-    x = None
-    del x
-    torch.cuda.empty_cache()
-    gc.collect()
-
-    # patch run
-    hidden_states_patch = {}
-    with model.trace(patch, **tracer_kwargs), t.no_grad():
-        for submodule in submodules:
-            x = submodule.output
-            hidden_states_patch[submodule] = x.save()
-        metric_patch = metric_fn(model, **metric_kwargs).save()
-
-    hidden_states_patch = {k : v.value for k, v in hidden_states_patch.items()}
-
-    x = None
-    del x
-    torch.cuda.empty_cache()
-    gc.collect()
-
-    effects = {}
-    deltas = {}
-    grads = {}
-    for i, submodule in enumerate(submodules):        
-        patch_state = hidden_states_patch[submodule]
-        clean_state = hidden_states_clean[submodule]
-        with model.trace(**tracer_kwargs) as tracer:
-            metrics = []
-            fs = []
-            for step in range(steps):
-                alpha = step / steps
-                f = (1 - alpha) * clean_state + alpha * patch_state
-                f.retain_grad()
-                fs.append(f)
-                with tracer.invoke(clean, scan=tracer_kwargs['scan']):
-                    submodule.output = f
-                    metrics.append(metric_fn(model, **metric_kwargs))
-                
-            metric = sum([m for m in metrics])
-            metric.sum().backward(retain_graph=True) # TODO : why is this necessary? Probably shouldn't be, contact jaden
-        
-        mean_grad = sum([f.grad for f in fs]) / steps
-        # mean_residual_grad = sum([f.grad for f in fs]) / steps
-        grad = mean_grad
-        delta = (patch_state - clean_state).detach() if patch_state is not None else -clean_state.detach()
-        effect = t.mul(grad, delta)
-
-        effects[submodule] = effect
-        deltas[submodule] = delta
-        grads[submodule] = grad
-
-        patch_state = None
-        del patch_state
-        torch.cuda.empty_cache()
-        gc.collect()
-
-    
-    return (effects, deltas, grads)
-
 def get_important_neurons(examples, batch_size, mlps, pad_len, mean_act_files, task, noimg):
     # uses attribution patching to identify most important neurons for subtask
     num_examples = len(examples)
@@ -343,7 +263,6 @@ def get_important_neurons(examples, batch_size, mlps, pad_len, mean_act_files, t
         elif task == "blimp":
             img_inputs = None
             clean_answer_idxs = t.tensor([e['clean_answer'] for e in batch], dtype=t.long, device=device)
-            patch_inputs = t.cat([e['patch_prefix'] for e in batch], dim=0).to(device)
             patch_answer_idxs = t.tensor([e['patch_answer'] for e in batch], dtype=t.long, device=device)
 
             def metric(model):
@@ -354,11 +273,12 @@ def get_important_neurons(examples, batch_size, mlps, pad_len, mean_act_files, t
                 )
         
 
-            effects, _, _ = _pe_ig_patch(
+            effects, _, _ = _pe_ig(
                 clean_inputs,
-                patch_inputs,
+                img_inputs,
                 model,
                 mlps,
+                mean_act_files,
                 metric,
                 pad_len,
                 steps=10,
@@ -459,18 +379,15 @@ if __name__ == "__main__":
 
     # precompute mean activations on task or retrieve precomputed activation files
     prefix = f"{task}_{model_path}_e{epoch}_n{num_examples if num_examples != -1 else 'all'}{'_noimg' if noimg else ''}"
-    if task != "blimp":
-        mean_act_files = []
-        for file in os.listdir("mean_activations/"):
-            if file.startswith(prefix+"_mean_acts"):
-                mean_act_files.append(f"mean_activations/{file}")
-        if len(mean_act_files) != len(mlps):
-            mean_act_files = compute_mean_activations(examples, model, mlps, batch_size=128, noimg=noimg, file_prefix=prefix)
-            print(f"computed mean activations")
-        else:
-            print("retrieved precomputed mean activations")
+    mean_act_files = []
+    for file in os.listdir("mean_activations/"):
+        if file.startswith(prefix+"_mean_acts"):
+            mean_act_files.append(f"mean_activations/{file}")
+    if len(mean_act_files) != len(mlps):
+        mean_act_files = compute_mean_activations(examples, model, mlps, batch_size=128, noimg=noimg, file_prefix=prefix)
+        print(f"computed mean activations")
     else:
-        print("using counterfactuals instead of mean activations")
+        print("retrieved precomputed mean activations")
 
     # identify subtasks
     subtasks = {}

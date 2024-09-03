@@ -142,7 +142,6 @@ def load_blimp_examples(tokenizer, pad_to_length, n_samples, local):
                 sample["clean_answer"] = f" {sent_good[-1].rstrip(punctuation)}"
                 sample["patch_answer"] = f" {sent_bad[-1].rstrip(punctuation)}"
                 sample["clean_prefix"] = sample["sentence_good"].replace(sample["clean_answer"],"")
-                sample["patch_prefix"] = sample["sentence_bad"].replace(sample["patch_answer"],"")
                 suitable_samples.append(sample)
     examples = []
     eos_token_id = tokenizer.convert_tokens_to_ids("</s>")    
@@ -150,9 +149,6 @@ def load_blimp_examples(tokenizer, pad_to_length, n_samples, local):
         clean_tokens = tokenizer(sample["clean_prefix"], return_tensors="pt",
                                         padding=False)
         clean_prefix = clean_tokens.input_ids
-        patch_tokens = tokenizer(sample["patch_prefix"], return_tensors="pt",
-                                        padding=False)
-        patch_prefix = patch_tokens.input_ids
         clean_answer = tokenizer(sample["clean_answer"], return_tensors="pt",
                                         padding=False).input_ids
         patch_answer = tokenizer(sample["patch_answer"], return_tensors="pt",
@@ -167,10 +163,6 @@ def load_blimp_examples(tokenizer, pad_to_length, n_samples, local):
         if clean_answer.shape[1] != 1 or patch_answer.shape[1] != 1:
             continue
 
-        # only keep examples where prefix is of same length
-        if clean_prefix.shape[1] != patch_prefix.shape[1]:
-            continue
-
         # if we specify `pad_to_length`, left-pad all inputs to a max length
         prefix_length_wo_pad = clean_prefix.shape[1]
         if pad_to_length:
@@ -180,12 +172,9 @@ def load_blimp_examples(tokenizer, pad_to_length, n_samples, local):
                 continue
             # left padding: reverse, right-pad, reverse
             clean_prefix = t.flip(F.pad(t.flip(clean_prefix, (1,)), (0, pad_length), value=tokenizer.pad_token_id), (1,))
-            # left padding: reverse, right-pad, reverse
-            patch_prefix = t.flip(F.pad(t.flip(patch_prefix, (1,)), (0, pad_length), value=tokenizer.pad_token_id), (1,))
 
         example_dict = {"clean_prefix": clean_prefix,
                             "clean_answer": clean_answer.item(),
-                            "patch_prefix": patch_prefix,
                             "patch_answer": patch_answer.item(),
                             "UID": sample["UID"],
                             "linguistics_term": sample["linguistics_term"],
