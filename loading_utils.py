@@ -327,7 +327,7 @@ def get_annotation(dataset, model, data):
 
 
 def parse_vqa_qtypes():
-    with open("vqa_superclasses.txt", "r") as f:
+    with open("vqa_question_types_mapping.txt", "r") as f:
         lines = f.readlines()
         mapping = {}
         for l in lines:

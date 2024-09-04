@@ -1,0 +1,62 @@
+are - verification and existence
+are the - verification and existence
+are there - verification and existence
+are there any - verification and existence
+are these - verification and existence
+are they - verification and existence
+can you - action and state
+could - action and state
+do - action and state
+does the - action and state
+does this - action and state
+do you - action and state
+has - action and state
+how - general queries and miscellaneous
+how many - quantity and counting
+is - verification and existence
+is he - person and object identification
+is it - verification and existence
+is that a - person and object identification
+is the - verification and existence
+istheman - person and object identification
+is the person - person and object identification
+is there - verification and existence
+is there a - verification and existence
+is the woman - person and object identification
+is this - person and object identification
+is this a - person and object identification
+is this an - person and object identification
+is this person - person and object identification
+none of the above - general queries and miscellaneous
+was - verification and existence
+what - general queries and miscellaneous
+what animal is - identification and classification
+what are - identification and classification
+what are the - identification and classification
+what brand - identification and classification
+what color - color identification
+what color are the - color identification
+what color is - color identification
+what color is the - color identification
+what does the - action and state
+what is - identification and classification
+what is in the - spatial and positional information
+what is on the - spatial and positional information
+what is the - identification and classification
+what is the color of the - color identification
+what is the man - person and object identification
+what is the name - person and object identification
+what is the person - person and object identification
+what is the woman - person and object identification
+what is this - person and object identification
+what kind of - identification and classification
+what room is - spatial and positional information
+what sport is - identification and classification
+what time - temporal information
+what type of - identification and classification
+where are the - spatial and positional information
+where is the - spatial and positional information
+which - identification and classification
+who is - person and object identification
+why - reason and purpose
+why is the - reason and purpose
