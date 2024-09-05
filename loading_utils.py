@@ -6,7 +6,7 @@ import torch as t
 import torch.nn.functional as F
 from dictionary_learning.dictionary import AutoEncoder
 from dataclasses import dataclass
-from evaluate_tasks import load_vl_data, load_blimp
+from evaluate_tasks import load_vl_data, load_blimp, load_mmstar
 from string import punctuation
 
 @dataclass
@@ -125,6 +125,72 @@ def load_vqa_examples(tokenizer, img_processor, pad_to_length, n_samples, local)
         if n_samples > 0 and len(examples) == n_samples:
             break
         
+    return examples
+
+def load_mmstar_examples(tokenizer, img_processor, pad_to_length, n_samples):
+    samples = load_mmstar(n_samples)
+    eos_token_id = tokenizer.convert_tokens_to_ids("</s>")
+    examples = []
+    sample_keys = list(samples.keys())
+    random.seed(42)
+    random.shuffle(sample_keys)
+    correct_first_split = int(round(len(sample_keys)/2))
+    for i, sample_key in enumerate(sample_keys):
+        sample = samples[sample_key]
+        random_prompt = random.choice(sample["prompts"])
+
+        if i < correct_first_split:
+            part1 = sample["prompts"][0][0] + sample["prompts"][0][1]
+            part2 = random_prompt[0] + random_prompt[1]
+            
+        else:
+            part1 = random_prompt[0] + random_prompt[1]
+            part2 = sample["prompts"][0][0] + sample["prompts"][0][1]
+        text = part1 + "\n" + part2
+        
+        clean_prefix = tokenizer(text, return_tensors="pt",padding=False).input_ids
+
+        tokens1 = tokenizer(part1, return_tensors="pt",padding=False).input_ids
+        tokens1 = tokens1[tokens1 != eos_token_id]
+        tokens2 = tokenizer(part2, return_tensors="pt",padding=False).input_ids
+        tokens2 = tokens2[tokens2 != eos_token_id]
+
+        answers_concat = t.cat((tokens1, tokens2, t.tensor([eos_token_id])))
+        
+        assert t.equal(answers_concat, clean_prefix.flatten()), "separate token encodings differ from combined token encoding"
+
+        if i < correct_first_split:
+            correct_idx = list(range(0, len(tokens1)))
+            incorrect_idx = list(range(len(tokens1), len(tokens1)+len(tokens2)))
+        else:
+            correct_idx = list(range(0, len(tokens2)))
+            incorrect_idx = list(range(len(tokens2), len(tokens2)+len(tokens1)))
+
+
+        # if we specify `pad_to_length`, left-pad all inputs to a max length
+        prefix_length_wo_pad = clean_prefix.shape[1]
+        if pad_to_length:
+            tokenizer.padding_side = 'right'
+            pad_length = pad_to_length - prefix_length_wo_pad
+            if pad_length < 0:  # example too long
+                print(f"too long: {pad_length}")
+                continue
+            # left padding: reverse, right-pad, reverse
+            clean_prefix = t.flip(F.pad(t.flip(clean_prefix, (1,)), (0, pad_length), value=tokenizer.pad_token_id), (1,))
+
+        # generate image embeddings
+        pixel_values = img_processor(images=sample["image"].convert(mode="RGB"), return_tensors="pt")["pixel_values"]
+
+        example_dict = {"clean_prefix": clean_prefix,
+                        "correct_idx": correct_idx,
+                        "incorrect_idx": incorrect_idx,
+                        "category": sample["category"],
+                        "l2_category": sample["l2_category"],
+                        "pixel_values": pixel_values,
+                        "prefix_length_wo_pad": prefix_length_wo_pad}
+        examples.append(example_dict)
+        if n_samples > 0 and len(examples) == n_samples:
+            break
     return examples
 
 def load_blimp_examples(tokenizer, pad_to_length, n_samples, local):

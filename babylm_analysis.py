@@ -11,7 +11,7 @@ import torch
 from torch.cuda.amp import autocast
 from datasets import load_dataset
 
-from loading_utils import load_vqa_examples, load_blimp_examples, load_winoground_examples
+from loading_utils import load_vqa_examples, load_blimp_examples, load_winoground_examples, load_mmstar_examples
 
 from transformers import AutoProcessor, AutoTokenizer
 from nnsight import NNsight
@@ -284,7 +284,7 @@ def get_important_neurons(examples, batch_size, mlps, pad_len, mean_act_files, t
                 steps=10,
                 metric_kwargs=dict())
         
-        elif task == "winoground":
+        elif task == "winoground" or task == "mmstar":
             if noimg:
                 img_inputs = None
             else:
@@ -314,7 +314,7 @@ def get_important_neurons(examples, batch_size, mlps, pad_len, mean_act_files, t
                 metric,
                 pad_len,
                 steps=10,
-                metric_kwargs=dict())
+                metric_kwargs=dict())            
         
         
         for submodule in mlps:
@@ -369,13 +369,15 @@ if __name__ == "__main__":
     elif task == "blimp":
         examples = load_blimp_examples(tokenizer, pad_to_length=pad_len, n_samples=num_examples, local=local)
         subtask_key = "linguistics_term"
-        mean_act_files=None
     elif task == "winoground":
         examples = load_winoground_examples(tokenizer, img_processor, pad_to_length=pad_len, n_samples=num_examples, local=local)
         subtask_key = "secondary_tag"
+    elif task == "mmstar":
+        examples = load_mmstar_examples(tokenizer, img_processor, pad_to_length=pad_len, n_samples=num_examples)
+        subtask_key = "category"
     else:
         print(f"{task} is not implemented")
-    print("loaded samples")
+    print(f"loaded samples: {len(examples)}")
 
     # precompute mean activations on task or retrieve precomputed activation files
     prefix = f"{task}_{model_path}_e{epoch}_n{num_examples if num_examples != -1 else 'all'}{'_noimg' if noimg else ''}"

@@ -64,7 +64,7 @@ def split_options(question):
 
 def load_mmstar(n_samples):
     data = load_dataset("Lin-Chen/MMStar")["val"]
-    if n_samples < len(data):
+    if n_samples < len(data)  and n_samples > 0:
         data = data.select(range(n_samples))
     final_samples = {}
     for i, sample in enumerate(tqdm(data)):
