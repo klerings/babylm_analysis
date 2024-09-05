@@ -169,7 +169,7 @@ def compute_metric_with_ablation(examples, batch_size, top_neurons_mean, task, n
             sum_effects += total_effect.sum(dim=0)
 
         ablation_effect = sum_effects / num_examples
-        return ablation_effect
+    return ablation_effect
     
 if __name__ == "__main__":
 
