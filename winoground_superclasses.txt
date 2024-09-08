@@ -1,0 +1,70 @@
+Adjective-Age : Adjectival Comparisons and Modifications
+Adjective-Size : Adjectival Comparisons and Modifications
+Adjective-Manner : Adjectival Comparisons and Modifications
+Adjective-Color : Adjectival Comparisons and Modifications
+Adjective-Color (3-way swap) : Adjectival Comparisons and Modifications
+Adjective-Shape : Adjectival Comparisons and Modifications
+Adjective-Texture : Adjectival Comparisons and Modifications
+Adjective-Animate : Adjectival Comparisons and Modifications
+Adjective-Weight : Adjectival Comparisons and Modifications
+Adjective-Temperature : Adjectival Comparisons and Modifications
+Adjective-Speed : Adjectival Comparisons and Modifications
+Adjective-Height : Adjectival Comparisons and Modifications
+Adjective-Temporal : Temporal and Spatial Phrases
+Adjective-Spatial : Temporal and Spatial Phrases
+Adjective-Manner Phrase : Adjectival Comparisons and Modifications
+Adjective-Speed Phrase, Verb-Intransitive : Adjectival Comparisons and Modifications
+Noun, Adjective-Color : Noun Phrases and Modifiers
+Noun Phrase, Adjective-Animate : Noun Phrases and Modifiers
+Verb-Intransitive : Verb Phrases (Intransitive and Transitive)
+Verb-Transitive : Verb Phrases (Intransitive and Transitive)
+Verb-Transitive Phrase, Verb-Intransitive, Preposition Phrase : Verb Phrases (Intransitive and Transitive)
+Verb-Transitive Phrase : Verb Phrases (Intransitive and Transitive)
+Verb-Intransitive, Noun : Verb Phrases (Intransitive and Transitive)
+Verb-Intransitive Phrase : Verb Phrases (Intransitive and Transitive)
+Verb-Intransitive, Determiner-Numeral : Verb Phrases (Intransitive and Transitive)
+Verb-Intransitive, Adjective-Manner : Verb Phrases (Intransitive and Transitive)
+Verb-Intransitive, Verb-Transitive Phrase : Verb Phrases (Intransitive and Transitive)
+Verb-Intransitive Phrase, Adverb-Animate : Verb Phrases (Intransitive and Transitive)
+Verb-Intransitive Phrase, Preposition : Verb Phrases (Intransitive and Transitive)
+Adverb-Temporal : Temporal and Spatial Phrases
+Adverb-Spatial Phrase : Temporal and Spatial Phrases
+Adverb-Animate : Adjectival Comparisons and Modifications
+Adverb-Spatial : Temporal and Spatial Phrases
+Negation, Scope : Negation and Opposites
+Negation, Noun Phrase, Preposition Phrase : Negation and Opposites
+Scope : Scope and Relations
+Scope, Preposition, Verb-Intransitive : Scope and Relations
+Scope, Preposition Phrase : Scope and Relations
+Scope, Adjective-Manner : Scope and Relations
+Scope, Adjective-Texture : Scope and Relations
+Scope, Conjunction Phrase : Scope and Relations
+Scope, Relative Clause : Scope and Relations
+Scope, Conjunction : Scope and Relations
+Scope, Verb-Transitive : Scope and Relations
+Scope, Preposition : Scope and Relations
+Preposition Phrase, Scope : Preposition and Locations
+Preposition Phrase : Preposition and Locations
+Preposition : Preposition and Locations
+Determiner-Numeral : Determiner and Quantifier Relationships
+Determiner-Possessive : Determiner and Quantifier Relationships
+Relative Clause, Scope : Scope and Relations
+Sentence : Altered POS
+Noun : Noun Phrases and Modifiers
+Determiner-Numeral Phrase : Determiner and Quantifier Relationships
+Determiner-Numeral, Noun Phrase : Determiner and Quantifier Relationships
+Noun Phrase : Noun Phrases and Modifiers
+Pronoun, Noun Phrase : Pronouns and Referential Phrases
+Pronoun, Verb-Intransitive : Pronouns and Referential Phrases
+Noun Phrase, Adjective-Color : Noun Phrases and Modifiers
+Noun Phrase, Determiner-Possessive : Noun Phrases and Modifiers
+Noun Phrase, Determiner-Numeral : Noun Phrases and Modifiers
+Altered POS : Altered POS
+Noun, Verb-Intransitive : Noun Phrases and Modifiers
+Verb-Transitive, Noun : Verb Phrases (Intransitive and Transitive)
+Noun, Preposition Phrase, Scope : Noun Phrases and Modifiers
+Noun, Adjective-Size : Noun Phrases and Modifiers
+Scope, Preposition Phrase, Adjective-Color : Scope and Relations
+Altered POS, Determiner-Numeral : Altered POS
+Scope, Altered POS, Verb-Intransitive, Verb-Transitive : Scope and Relations
+Scope, Noun, Preposition : Scope and Relations

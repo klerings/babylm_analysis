@@ -80,7 +80,26 @@ def load_mmstar(n_samples):
     
     return final_samples
         
-
+def load_ewok(n_samples, load_all=False):
+    final_samples = {}
+    file_dir = "data/ewok_filtered/"
+    subtasks = [file_dir + f for f in os.listdir(file_dir)]
+    datasets = []
+    n_subtasks = 11
+    n_samples_subtask = max(int(round(n_samples/n_subtasks)),1)
+    for subtask in subtasks:
+        ds = load_dataset(path="json", name=None, data_files=subtask)["train"]
+        shuffled_ds = ds.shuffle(seed=42)
+        if load_all:
+            datasets.append(shuffled_ds)
+        elif n_samples_subtask < len(shuffled_ds):
+            datasets.append(shuffled_ds.select(range(n_samples_subtask)))
+        else:
+            datasets.append(shuffled_ds)
+    full_dataset = concatenate_datasets(datasets)
+    for i, sample in enumerate(full_dataset):
+        final_samples[i] = sample
+    return final_samples
 
 def load_vl_data(task="vqa", n_samples=32, local=False):
     if task == "vqa":
