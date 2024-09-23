@@ -1,59 +1,16 @@
-from nnsight import LanguageModel
 
 import torch as t
 import gc
 import sys
-import math
 import numpy as np
 import os
 from tqdm import tqdm
 import torch
-from torch.cuda.amp import autocast
-from datasets import load_dataset
 
-from loading_utils import load_vqa_examples, load_blimp_examples, load_winoground_examples, load_mmstar_examples, load_ewok_examples
-
-from transformers import AutoProcessor, AutoTokenizer
-from nnsight import NNsight
-import importlib.util
+from loading_utils import load_vqa_examples, load_blimp_examples, load_winoground_examples, load_mmstar_examples, load_ewok_examples, load_model
 import pickle
 import sys
 import json
-
-from memory_profiler import profile
-
-
-def load_model(model_path, epoch, own_model=True, local=False):
-    if own_model:
-        if local:
-            model_path = f"../babylm_GIT/models2/base_{model_path}/epoch{epoch}/"
-        else:
-            model_path = f"/home/ma/ma_ma/ma_aklering/gpfs/ma_aklering-babylm2/babylm_GIT/models_for_eval/base_{model_path}/epoch{epoch}/"
-        spec = importlib.util.spec_from_file_location("GitForCausalLM", f"{model_path}modeling_git.py")
-        git_module = importlib.util.module_from_spec(spec)
-        sys.modules["git_module"] = git_module
-        spec.loader.exec_module(git_module)
-        GitForCausalLM = git_module.GitForCausalLM
-
-        model = GitForCausalLM.from_pretrained(model_path) 
-        ckpt = torch.load(model_path + "pytorch_model.bin") # TODO: newly initialized for vision encoder: ['pooler.dense.bias', 'pooler.dense.weight']
-        model.load_state_dict(ckpt, strict=False)  
-        
-    else:
-        model_path = "babylm/git-2024"
-
-        from transformers import GitForCausalLM as OGModel
-
-        model = OGModel.from_pretrained(model_path, trust_remote_code=True)
-        
-    # load tokenizer and img processor
-    tokenizer = AutoTokenizer.from_pretrained(model_path, trust_remote_code=True)
-    img_processor = AutoProcessor.from_pretrained(model_path,trust_remote_code=True)
-    
-    nnsight_model = NNsight(model, device_map="cuda")
-    nnsight_model.to("cuda")
-
-    return nnsight_model, tokenizer, img_processor
 
 
 def extract_submodules(model):
@@ -82,7 +39,6 @@ def compute_mean_activations(examples, model, submodules, batch_size, noimg=Fals
         
             # clean run -> model can be approximated through linear function of its activations
             hidden_states_clean = {}
-            #with autocast():
             if noimg:
                 with model.trace(clean_inputs, **tracer_kwargs), t.no_grad():
                     x = submodule.output
@@ -138,7 +94,6 @@ def compute_mean_activations(examples, model, submodules, batch_size, noimg=Fals
     return mean_act_files
 
 # Attribution patching with integrated gradients
-#@profile
 def _pe_ig(
         clean,
         img_inputs,
@@ -199,10 +154,9 @@ def _pe_ig(
                         submodule.output = f[:,-pad_len:,:]   # we are only interested in the text tokens which are appended to img tokens
                         metrics.append(metric_fn(model, **metric_kwargs))
             metric = sum([m for m in metrics])
-            metric.sum().backward(retain_graph=True) # TODO : why is this necessary? Probably shouldn't be, contact jaden
+            metric.sum().backward(retain_graph=True)
         
         mean_grad = sum([f.grad for f in fs]) / steps
-        # mean_residual_grad = sum([f.grad for f in fs]) / steps
         grad = mean_grad
         delta = (mean_state - clean_state).detach() if mean_state is not None else -clean_state.detach()
         effect = t.mul(grad, delta)
@@ -242,7 +196,6 @@ def get_important_neurons(examples, batch_size, mlps, pad_len, mean_act_files, t
             def metric(model):
                 # compute difference between correct answer and first distractor
                 # TODO: compute avg difference between correct answer and each distractor
-                #embds_out = model.output.output.save()
                 
                 return (
                     t.gather(model.output.output[:,-1,:], dim=-1, index=first_distractor_idxs.view(-1, 1)).squeeze(-1) - \
@@ -375,10 +328,9 @@ if __name__ == "__main__":
         config = json.load(f)
     task = config["task"]
     num_examples = config["num_examples"]
-    local = config["local"]
-    print(f"task: {task} num_examples: {num_examples},  local: {local}")
+    print(f"task: {task} num_examples: {num_examples}")
 
-    model_path = config["model_path"]
+    model_setting = config["model_path"]
     epoch = config["epoch"]
 
     batch_size = config["batch_size"]
@@ -389,7 +341,8 @@ if __name__ == "__main__":
 
 
     # load and prepare model
-    model, tokenizer, img_processor = load_model(model_path, epoch, own_model=True, local=local)
+    model_dir = "../babylm_GIT/models_for_eval/final_models" # must be changed depending on where trained models are stored
+    model, tokenizer, img_processor = load_model(model_dir, model_setting, epoch)
     submodules = extract_submodules(model)
     mlps = [submodules[submodule] for submodule in submodules if submodule.startswith("mlp")]
     print("loaded model and submodules")
@@ -397,13 +350,13 @@ if __name__ == "__main__":
 
     # load and prepare data
     if task == "vqa":
-        examples = load_vqa_examples(tokenizer, img_processor, pad_to_length=pad_len, n_samples=num_examples, local=local)
+        examples = load_vqa_examples(tokenizer, img_processor, pad_to_length=pad_len, n_samples=num_examples)
         subtask_key = "question_type"
     elif task == "blimp":
-        examples = load_blimp_examples(tokenizer, pad_to_length=pad_len, n_samples=num_examples, local=local)
+        examples = load_blimp_examples(tokenizer, pad_to_length=pad_len, n_samples=num_examples)
         subtask_key = "linguistics_term"
     elif task == "winoground":
-        examples = load_winoground_examples(tokenizer, img_processor, pad_to_length=pad_len, n_samples=num_examples, local=local)
+        examples = load_winoground_examples(tokenizer, img_processor, pad_to_length=pad_len, n_samples=num_examples)
         subtask_key = "superclass" #"secondary_tag"
     elif task == "mmstar":
         examples = load_mmstar_examples(tokenizer, img_processor, pad_to_length=pad_len, n_samples=num_examples)
@@ -416,16 +369,13 @@ if __name__ == "__main__":
     print(f"loaded samples: {len(examples)}")
 
     # precompute mean activations on task or retrieve precomputed activation files
-    prefix = f"{task}_{model_path}_e{epoch}_n{num_examples if num_examples != -1 else 'all'}{'_noimg' if noimg else ''}"
+    prefix = f"{task}_{model_setting}_e{epoch}_n{num_examples if num_examples != -1 else 'all'}{'_noimg' if noimg else ''}"
     mean_act_files = []
     for file in os.listdir("mean_activations/"):
         if file.startswith(prefix+"_mean_acts"):
             mean_act_files.append(f"mean_activations/{file}")
     if len(mean_act_files) != len(mlps):
-        if sys.argv[1] == "local_ewok2_noimg.json":
-            mean_act_files = compute_mean_activations(examples, model, mlps, batch_size=4, noimg=noimg, file_prefix=prefix)
-        else:
-            mean_act_files = compute_mean_activations(examples, model, mlps, batch_size=128, noimg=noimg, file_prefix=prefix)
+        mean_act_files = compute_mean_activations(examples, model, mlps, batch_size=128, noimg=noimg, file_prefix=prefix)
         print(f"computed mean activations")
     else:
         print("retrieved precomputed mean activations")
@@ -453,8 +403,8 @@ if __name__ == "__main__":
         top_neurons = get_important_neurons(examples, batch_size, mlps, pad_len, mean_act_files, task=task, noimg=noimg)
         print(f"finished subtask: {subtask}")
 
-        out_dir = f"data/top_neurons/{task if task != 'vqa' else 'vqa_new'}/{prefix}/"
+        out_dir = f"results/top_neurons/{task}/{prefix}/"
         if not os.path.exists(out_dir):
             os.makedirs(out_dir)
-        with open(f"data/top_neurons/{task if task != 'vqa' else 'vqa_new'}/{prefix}/{subtask}_top_neurons.pkl", "wb") as f:
+        with open(f"results/top_neurons/{task}/{prefix}/{subtask}_top_neurons.pkl", "wb") as f:
             pickle.dump(top_neurons, f)

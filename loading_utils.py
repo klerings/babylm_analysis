@@ -1,79 +1,162 @@
+import random
 import os
 import re
-import json
-import random
-import torch as t
+import sys
+from tqdm import tqdm
+import torch
 import torch.nn.functional as F
-from dictionary_learning.dictionary import AutoEncoder
-from dataclasses import dataclass
-from evaluate_tasks import load_vl_data, load_blimp, load_mmstar, load_ewok
+from datasets import load_dataset, concatenate_datasets
 from string import punctuation
+from transformers import AutoProcessor, AutoTokenizer
+from nnsight import NNsight
+import importlib.util
 
-@dataclass
-class DictionaryCfg():
-    def __init__(
-        self,
-        dictionary_dir,
-        dictionary_size
-        ) -> None:
-        self.dir = dictionary_dir
-        self.size = dictionary_size
+def load_blimp(task, n_samples=32, load_all=False):
+    final_samples = {}
+    file_dir = f"data/{task}/"
+    subtasks = [file_dir + f for f in os.listdir(file_dir)]
+    datasets = []
+    n_subtasks = 67 if task == "blimp_filtered" else 5
+    n_samples_subtask = max(int(round(n_samples/n_subtasks)),1)
+    for subtask in subtasks:
+        ds = load_dataset(path="json", name=None, data_files=subtask)["train"]
+        shuffled_ds = ds.shuffle(seed=42)
+        if load_all:
+            datasets.append(shuffled_ds)
+        elif n_samples_subtask < len(shuffled_ds):
+            datasets.append(shuffled_ds.select(range(n_samples_subtask)))
+        else:
+            datasets.append(shuffled_ds)
+    full_dataset = concatenate_datasets(datasets)
+    for i, sample in enumerate(full_dataset):
+        final_samples[i] = sample
+        final_samples[i]["prompts"] = [("", f" {sample['sentence_good']}"), ("", f" {sample['sentence_bad']}")]
+    return final_samples
 
+def split_options2(question):
+    q = question.replace("Question:", "")
+    q = re.sub(r"Hint:.+?\n", "", q)
+    parts = re.split(r"\(A\)|\(B\)|\(C\)|\(D\)", q)
+    quest = parts[0].strip().replace("Choices:", "").replace("Options:", "").strip()
+    opts = [o.strip().rstrip(",.") for o in parts[1:]]
+    assert len(opts) >= 3 and len(opts) < 5, question
+    return (quest.strip(), opts)
 
-def load_examples(dataset, num_examples, model, seed=12, pad_to_length=None, length=None,
-                  ignore_patch=False):
-    examples = []
-    dataset_items = open(dataset).readlines()
-    random.seed(seed)
-    random.shuffle(dataset_items)
-    for line in dataset_items:
-        data = json.loads(line)
-        clean_prefix = model.tokenizer(data["clean_prefix"], return_tensors="pt",
-                                        padding=False).input_ids
-        patch_prefix = model.tokenizer(data["patch_prefix"], return_tensors="pt",
-                                        padding=False).input_ids
-        clean_answer = model.tokenizer(data["clean_answer"], return_tensors="pt",
-                                        padding=False).input_ids
-        patch_answer = model.tokenizer(data["patch_answer"], return_tensors="pt",
-                                        padding=False).input_ids
-        # remove BOS tokens from answers
-        clean_answer = clean_answer[clean_answer != model.tokenizer.bos_token_id].unsqueeze(0)
-        patch_answer = patch_answer[patch_answer != model.tokenizer.bos_token_id].unsqueeze(0)
-        # only keep examples where answers are single tokens
-        if not ignore_patch:
-            if clean_prefix.shape[1] != patch_prefix.shape[1]:
-                continue
-        # only keep examples where clean and patch inputs are the same length
-        if clean_answer.shape[1] != 1 or patch_answer.shape[1] != 1:
-            continue
-        # if we specify a `length`, filter examples if they don't match
-        if length and clean_prefix.shape[1] != length:
-            continue
-        # if we specify `pad_to_length`, left-pad all inputs to a max length
-        prefix_length_wo_pad = clean_prefix.shape[1]
-        if pad_to_length:
-            model.tokenizer.padding_side = 'right'
-            pad_length = pad_to_length - prefix_length_wo_pad
-            if pad_length < 0:  # example too long
-                continue
-            # left padding: reverse, right-pad, reverse
-            clean_prefix = t.flip(F.pad(t.flip(clean_prefix, (1,)), (0, pad_length), value=model.tokenizer.pad_token_id), (1,))
-            patch_prefix = t.flip(F.pad(t.flip(patch_prefix, (1,)), (0, pad_length), value=model.tokenizer.pad_token_id), (1,))
-        example_dict = {"clean_prefix": clean_prefix,
-                        "patch_prefix": patch_prefix,
-                        "clean_answer": clean_answer.item(),
-                        "patch_answer": patch_answer.item(),
-                        "annotations": get_annotation(dataset, model, data),
-                        "prefix_length_wo_pad": prefix_length_wo_pad,}
-        examples.append(example_dict)
-        if len(examples) >= num_examples:
-            break
+def split_options(question):
+    if "Choices:" in question:
+        #print(split_options2(question))
+        #exit()
+        return split_options2(question)
+    q = question.replace("Question:", "")
+    q = re.sub(r"Hint:.+?\n", "", question)
+    parts = re.split(r"A: |B: |C: |D: ", q)
+    quest = parts[0].strip().replace("Options:", "").strip()
+    opts = [o.strip().rstrip(",.") for o in parts[1:]]
+    if not len(opts) >= 3 or not len(opts) < 5:
+        return split_options2(question)
+    return (quest.strip(), opts)
 
-    return examples
+def load_mmstar(n_samples):
+    data = load_dataset("Lin-Chen/MMStar")["val"]
+    if n_samples < len(data)  and n_samples > 0:
+        data = data.select(range(n_samples))
+    final_samples = {}
+    for i, sample in enumerate(tqdm(data)):
+        question, options = split_options(sample['question'])
+        answer_idx = ord(sample["answer"])-ord("A")
+        sample['question'] = question
+        ordered_options = [options.pop(answer_idx)] + options[:4]
 
+        final_samples[i] = sample
+        final_samples[i]["prompts"] = []
+        for oo in ordered_options:
+            final_samples[i]["prompts"].append(transform_qa(question, oo))
+    
+    return final_samples
+        
+def load_ewok(n_samples, load_all=False):
+    final_samples = {}
+    file_dir = "data/ewok_filtered/"
+    subtasks = [file_dir + f for f in os.listdir(file_dir)]
+    datasets = []
+    n_subtasks = 11
+    n_samples_subtask = max(int(round(n_samples/n_subtasks)),1)
+    for subtask in subtasks:
+        ds = load_dataset(path="json", name=None, data_files=subtask)["train"]
+        shuffled_ds = ds.shuffle(seed=42)
+        if load_all:
+            datasets.append(shuffled_ds)
+        elif n_samples_subtask < len(shuffled_ds):
+            datasets.append(shuffled_ds.select(range(n_samples_subtask)))
+        else:
+            datasets.append(shuffled_ds)
+    full_dataset = concatenate_datasets(datasets)
+    for i, sample in enumerate(full_dataset):
+        final_samples[i] = sample
+    return final_samples
 
-def load_vqa_examples(tokenizer, img_processor, pad_to_length, n_samples, local):
-    samples = load_vl_data(task="vqa", n_samples=n_samples*10, local=local)
+def load_vl_data(task="vqa", n_samples=32):
+    if task == "vqa":
+        hf_path = "HuggingFaceM4/VQAv2"
+        hf_split = "validation"
+        local_file = f"data/vqa_filtered/vqa_distractors_info.json"
+    elif task == "winoground":
+        hf_path = "facebook/winoground"
+        hf_split = "test"
+        local_file = f"data/winoground_filtered/winoground.jsonl"
+    
+    # load huggingface dataset with images
+    hf_ds = load_dataset(hf_path)[hf_split]
+
+    print("loaded huggingface DS")
+        
+    # load dataset with distractors from json
+    distractor_ds = load_dataset(path="json", name=None, data_files=local_file)["train"]
+
+    print("loaded local DS")
+    shuffled_distractors = distractor_ds.shuffle(seed=42)
+    if n_samples < len(shuffled_distractors) and n_samples > 0:
+        shuffled_distractors = shuffled_distractors.select(range(n_samples))
+
+    # merge datasets by adding distractor info from json to hf dataset samples
+    samples = []
+    for sample in tqdm(shuffled_distractors):
+        if task == "vqa":
+            # add distractor info from json to hf dataset sample
+            img_sample = hf_ds[sample["idx_in_hf_dataset"]] 
+            if img_sample["image_id"] != sample["image_id"]:
+                print(f"Sample Mismatch: {sample['image_id']} - {img_sample['image_id']}")
+            else:
+                img_sample["distractors"] = sample["distractors"]
+                samples.append(img_sample)
+        elif task == "winoground":
+            # add image to json dataset samples because winoground batches pairs together as one sample and json file splits them
+            img_sample = hf_ds[sample["image_idx"]]
+            img = img_sample[sample["image_key"]]
+            sample["image"] = img
+            samples.append(sample)
+
+    final_samples = {}
+    # per sample create prompts consisting of tuple with question-answer-prompt (context) and answer-options (continuation)
+    for sample in samples:
+        if task == "vqa":
+            final_samples[sample["question_id"]] = sample
+            final_samples[sample["question_id"]]["prompts"]= []
+            final_samples[sample["question_id"]]["prompts"].append(transform_qa(sample["question"], sample["multiple_choice_answer"]))
+            for d in sample["distractors"]:
+                final_samples[sample["question_id"]]["prompts"].append(transform_qa(sample["question"], d))
+        elif task == "winoground":
+            final_samples[sample["id"]] = sample
+            final_samples[sample["id"]]["prompts"] = [("", f" {sample['caption_0']}"), ("", f" {sample['caption_1']}")]
+   
+    return final_samples
+
+# prepare input format (img + question + answer)
+def transform_qa(question, answer):
+    return f"Question: {question} Answer:", f" {answer}"
+
+def load_vqa_examples(tokenizer, img_processor, pad_to_length, n_samples):
+    samples = load_vl_data(task="vqa", n_samples=n_samples*10)
     examples = []
     eos_token_id = tokenizer.convert_tokens_to_ids("</s>")
     lookup = parse_vqa_qtypes()
@@ -110,7 +193,7 @@ def load_vqa_examples(tokenizer, img_processor, pad_to_length, n_samples, local)
             if pad_length < 0:  # example too long
                 continue
             # left padding: reverse, right-pad, reverse
-            clean_prefix = t.flip(F.pad(t.flip(clean_prefix, (1,)), (0, pad_length), value=tokenizer.pad_token_id), (1,))
+            clean_prefix = torch.flip(F.pad(torch.flip(clean_prefix, (1,)), (0, pad_length), value=tokenizer.pad_token_id), (1,))
 
         # generate image embeddings
         pixel_values = img_processor(images=sample["image"].convert(mode="RGB"), return_tensors="pt")["pixel_values"]
@@ -137,7 +220,7 @@ def load_mmstar_examples(tokenizer, img_processor, pad_to_length, n_samples):
     correct_first_split = int(round(len(sample_keys)/2))
     for i, sample_key in enumerate(sample_keys):
         sample = samples[sample_key]
-        random_prompt = random.choice(sample["prompts"])
+        random_prompt = random.choice(sample["prompts"][1:])
 
         if i < correct_first_split:
             part1 = sample["prompts"][0][0] + sample["prompts"][0][1]
@@ -155,18 +238,27 @@ def load_mmstar_examples(tokenizer, img_processor, pad_to_length, n_samples):
         tokens2 = tokenizer(part2, return_tensors="pt",padding=False).input_ids
         tokens2 = tokens2[tokens2 != eos_token_id]
 
-        answers_concat = t.cat((tokens1, tokens2, t.tensor([eos_token_id])))
+        answers_concat = torch.cat((tokens1, tokens2, torch.tensor([eos_token_id])))
         
-        assert t.equal(answers_concat, clean_prefix.flatten()), "separate token encodings differ from combined token encoding"
+        if not torch.equal(answers_concat, clean_prefix.flatten()):
+            print("separate token encodings differ from combined token encoding")
+            continue
 
         if i < correct_first_split:
-            correct_idx = list(range(0, len(tokens1)))
-            incorrect_idx = list(range(len(tokens1), len(tokens1)+len(tokens2)))
+            start_correct = 0
+            end_correct = len(tokens1)
+            start_incorrect = end_correct
+            end_incorrect = start_incorrect + len(tokens2)
         else:
-            correct_idx = list(range(0, len(tokens2)))
-            incorrect_idx = list(range(len(tokens2), len(tokens2)+len(tokens1)))
+            start_incorrect = 0
+            end_incorrect = len(tokens1)
+            start_correct = end_incorrect
+            end_correct = start_correct + len(tokens2)
 
+        correct_idx = list(range(start_correct, end_correct))
+        incorrect_idx = list(range(start_incorrect, end_incorrect))
 
+        
         # if we specify `pad_to_length`, left-pad all inputs to a max length
         prefix_length_wo_pad = clean_prefix.shape[1]
         if pad_to_length:
@@ -176,7 +268,7 @@ def load_mmstar_examples(tokenizer, img_processor, pad_to_length, n_samples):
                 print(f"too long: {pad_length}")
                 continue
             # left padding: reverse, right-pad, reverse
-            clean_prefix = t.flip(F.pad(t.flip(clean_prefix, (1,)), (0, pad_length), value=tokenizer.pad_token_id), (1,))
+            clean_prefix = torch.flip(F.pad(torch.flip(clean_prefix, (1,)), (0, pad_length), value=tokenizer.pad_token_id), (1,))
 
         # generate image embeddings
         pixel_values = img_processor(images=sample["image"].convert(mode="RGB"), return_tensors="pt")["pixel_values"]
@@ -223,24 +315,24 @@ def load_ewok_examples(tokenizer, pad_to_length, n_samples):
         tokens2 = tokens2[tokens2 != eos_token_id]
         context = context[context != eos_token_id]
         
-        answers_concat = t.cat((context, tokens1, context, tokens2, t.tensor([eos_token_id])))
+        answers_concat = torch.cat((context, tokens1, context, tokens2, torch.tensor([eos_token_id])))
         
-        assert t.equal(answers_concat, clean_prefix.flatten()), "separate token encodings differ from combined token encoding"
+        assert torch.equal(answers_concat, clean_prefix.flatten()), "separate token encodings differ from combined token encoding"
 
         if i < correct_first_split:
-            start_correct = len(context)
-            end_correct = start_correct + len(tokens1)
-            start_incorrect = end_correct + len(context) 
-            end_incorrect = start_incorrect + len(tokens2)
+            start_correct = 0
+            end_correct = len(context) + len(tokens1)
+            start_incorrect = end_correct
+            end_incorrect = start_incorrect + len(context) + len(tokens2)
         else:
             
-            start_incorrect = len(context)
-            end_incorrect = start_incorrect + len(tokens1)
-            start_correct = end_incorrect + len(context) 
-            end_correct = end_incorrect + len(tokens2)
+            start_incorrect = 0
+            end_incorrect = len(context) + len(tokens1)
+            start_correct = end_incorrect
+            end_correct = end_incorrect + len(context) + + len(tokens2)
+
         correct_idx = list(range(start_correct, end_correct))
         incorrect_idx = list(range(start_incorrect, end_incorrect))
-
 
         # if we specify `pad_to_length`, left-pad all inputs to a max length
         prefix_length_wo_pad = clean_prefix.shape[1]
@@ -248,10 +340,9 @@ def load_ewok_examples(tokenizer, pad_to_length, n_samples):
             tokenizer.padding_side = 'right'
             pad_length = pad_to_length - prefix_length_wo_pad
             if pad_length < 0:  # example too long
-                #print(f"too long: {pad_length}")
                 continue
             # left padding: reverse, right-pad, reverse
-            clean_prefix = t.flip(F.pad(t.flip(clean_prefix, (1,)), (0, pad_length), value=tokenizer.pad_token_id), (1,))
+            clean_prefix = torch.flip(F.pad(torch.flip(clean_prefix, (1,)), (0, pad_length), value=tokenizer.pad_token_id), (1,))
 
 
         example_dict = {"clean_prefix": clean_prefix,
@@ -264,8 +355,8 @@ def load_ewok_examples(tokenizer, pad_to_length, n_samples):
             break
     return examples
 
-def load_blimp_examples(tokenizer, pad_to_length, n_samples, local):
-    samples = load_blimp(task="blimp_filtered", load_all=True, local=local)
+def load_blimp_examples(tokenizer, pad_to_length, n_samples):
+    samples = load_blimp(task="blimp_filtered", load_all=True)
     # identify suitable sentences for attribution patching
     suitable_samples = []
     for sample_id, sample in samples.items():
@@ -309,7 +400,7 @@ def load_blimp_examples(tokenizer, pad_to_length, n_samples, local):
             if pad_length < 0:  # example too long
                 continue
             # left padding: reverse, right-pad, reverse
-            clean_prefix = t.flip(F.pad(t.flip(clean_prefix, (1,)), (0, pad_length), value=tokenizer.pad_token_id), (1,))
+            clean_prefix = torch.flip(F.pad(torch.flip(clean_prefix, (1,)), (0, pad_length), value=tokenizer.pad_token_id), (1,))
 
         example_dict = {"clean_prefix": clean_prefix,
                             "clean_answer": clean_answer.item(),
@@ -322,10 +413,10 @@ def load_blimp_examples(tokenizer, pad_to_length, n_samples, local):
             break
     return examples
         
-def load_winoground_examples(tokenizer, img_processor, pad_to_length, n_samples, local):
+def load_winoground_examples(tokenizer, img_processor, pad_to_length, n_samples):
     examples = []
     eos_token_id = tokenizer.convert_tokens_to_ids("</s>")
-    winoground_data = load_vl_data(task="winoground", n_samples=n_samples, local=local)
+    winoground_data = load_vl_data(task="winoground", n_samples=n_samples)
     sample_keys = list(winoground_data.keys())
     random.seed(42)
     random.shuffle(sample_keys)
@@ -350,16 +441,23 @@ def load_winoground_examples(tokenizer, img_processor, pad_to_length, n_samples,
         tokens2 = tokenizer(part2, return_tensors="pt",padding=False).input_ids
         tokens2 = tokens2[tokens2 != eos_token_id]
 
-        answers_concat = t.cat((tokens1, tokens2, t.tensor([eos_token_id])))
+        answers_concat = torch.cat((tokens1, tokens2, torch.tensor([eos_token_id])))
         
-        assert t.equal(answers_concat, clean_prefix.flatten()), "separate token encodings differ from combined token encoding"
+        assert torch.equal(answers_concat, clean_prefix.flatten()), "separate token encodings differ from combined token encoding"
 
         if i < correct_first_split:
-            correct_idx = list(range(0, len(tokens1)))
-            incorrect_idx = list(range(len(tokens1), len(tokens1)+len(tokens2)))
+            start_correct = 0
+            end_correct = len(tokens1)
+            start_incorrect = end_correct
+            end_incorrect = start_incorrect + len(tokens2)
         else:
-            correct_idx = list(range(0, len(tokens2)))
-            incorrect_idx = list(range(len(tokens2), len(tokens2)+len(tokens1)))
+            start_incorrect = 0
+            end_incorrect = len(tokens1)
+            start_correct = end_incorrect
+            end_correct = start_correct + len(tokens2)
+
+        correct_idx = list(range(start_correct, end_correct))
+        incorrect_idx = list(range(start_incorrect, end_incorrect))
 
 
         # if we specify `pad_to_length`, left-pad all inputs to a max length
@@ -370,7 +468,7 @@ def load_winoground_examples(tokenizer, img_processor, pad_to_length, n_samples,
             if pad_length < 0:  # example too long
                 continue
             # left padding: reverse, right-pad, reverse
-            clean_prefix = t.flip(F.pad(t.flip(clean_prefix, (1,)), (0, pad_length), value=tokenizer.pad_token_id), (1,))
+            clean_prefix = torch.flip(F.pad(torch.flip(clean_prefix, (1,)), (0, pad_length), value=tokenizer.pad_token_id), (1,))
 
         # generate image embeddings
         pixel_values = img_processor(images=sample["image"].convert(mode="RGB"), return_tensors="pt")["pixel_values"]
@@ -389,82 +487,6 @@ def load_winoground_examples(tokenizer, img_processor, pad_to_length, n_samples,
             break
     return examples
 
-def load_examples_nopair(dataset, num_examples, model, length=None):
-    examples = []
-    if isinstance(dataset, str):        # is a path to a .json file
-        dataset = json.load(open(dataset))
-    elif isinstance(dataset, dict):     # is an already-loaded dictionary
-        pass
-    else:
-        raise ValueError(f"`dataset` is unrecognized type: {type(dataset)}. Must be path (str) or dict")
-    
-    max_len = 0     # for padding
-    for context_id in dataset:
-        context = dataset[context_id]["context"]
-        if length is not None and len(context) > length:
-            context = context[-length:]
-        clean_prefix = model.tokenizer("".join(context), return_tensors="pt",
-                        padding=False).input_ids
-        max_len = max(max_len, clean_prefix.shape[-1])
-
-    for context_id in dataset:
-        answer = dataset[context_id]["answer"]
-        context = dataset[context_id]["context"]
-        clean_prefix = model.tokenizer("".join(context), return_tensors="pt",
-                                    padding=False).input_ids
-        clean_answer = model.tokenizer(answer, return_tensors="pt",
-                                    padding=False).input_ids
-        if clean_answer.shape[1] != 1:
-            continue
-        prefix_length_wo_pad = clean_prefix.shape[1]
-        pad_length = max_len - prefix_length_wo_pad
-        # left padding: reverse, right-pad, reverse
-        clean_prefix = t.flip(F.pad(t.flip(clean_prefix, (1,)), (0, pad_length), value=model.tokenizer.pad_token_id), (1,))
-
-        example_dict = {"clean_prefix": clean_prefix,
-                        "clean_answer": clean_answer.item(),
-                        "prefix_length_wo_pad": prefix_length_wo_pad,}
-        examples.append(example_dict)
-        if len(examples) >= num_examples:
-            break
-
-    return examples
-
-def get_annotation(dataset, model, data):
-    # First, understand which dataset we're working with
-    structure = None
-    if "within_rc" in dataset:
-        structure = "within_rc"
-        template = "the_subj subj_main that the_dist subj_dist"
-    elif "rc.json" in dataset or "rc_" in dataset:
-        structure = "rc"
-        template = "the_subj subj_main that the_dist subj_dist verb_dist"
-    elif "simple.json" in dataset or "simple_" in dataset:
-        structure = "simple"
-        template = "the_subj subj_main"
-    elif "nounpp.json" in dataset or "nounpp_" in dataset:
-        structure = "nounpp"
-        template = "the_subj subj_main prep the_dist subj_dist"
-
-    if structure is None:
-        return {}
-    
-    annotations = {}
-
-    # Iterate through words in the template and input. Get token spans
-    curr_token = 0
-    for template_word, word in zip(template.split(), data["clean_prefix"].split()):
-        if word != "The":
-            word = " " + word
-        word_tok = model.tokenizer(word, return_tensors="pt", padding=False).input_ids
-        num_tokens = word_tok.shape[1]
-        span = (curr_token, curr_token + num_tokens-1)
-        curr_token += num_tokens
-        annotations[template_word] = span
-    
-    return annotations
-
-
 def parse_vqa_qtypes():
     with open("vqa_superclasses.txt", "r") as f:
         lines = f.readlines()
@@ -482,3 +504,24 @@ def parse_winoground_qtypes():
             parts = l.split(":")
             mapping[parts[0].strip()] = parts[1].strip()
     return mapping
+
+def load_model(model_dir, model_setting, epoch):
+    model_path = f"{model_dir}/base_{model_setting}_e{epoch}/"
+    spec = importlib.util.spec_from_file_location("GitForCausalLM", f"{model_path}modeling_git.py")
+    git_module = importlib.util.module_from_spec(spec)
+    sys.modules["git_module"] = git_module
+    spec.loader.exec_module(git_module)
+    GitForCausalLM = git_module.GitForCausalLM
+
+    model = GitForCausalLM.from_pretrained(model_path) 
+    ckpt = torch.load(model_path + "pytorch_model.bin") # TODO: newly initialized for vision encoder: ['pooler.dense.bias', 'pooler.dense.weight']
+    model.load_state_dict(ckpt, strict=False)  
+        
+    # load tokenizer and img processor
+    tokenizer = AutoTokenizer.from_pretrained(model_path, trust_remote_code=True)
+    img_processor = AutoProcessor.from_pretrained(model_path,trust_remote_code=True)
+    
+    nnsight_model = NNsight(model, device_map="cuda")
+    nnsight_model.to("cuda")
+
+    return nnsight_model, tokenizer, img_processor

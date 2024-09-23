@@ -4,7 +4,6 @@
 
     "num_examples": -1,
     "threshold_subtask": 10,
-    "local": false,
     "model_path": "git_1vd125_s1",
     "epoch": 29,
     "batch_size": 4,

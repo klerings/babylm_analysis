@@ -1,0 +1,43 @@
+
+Subject Verb Agreement & SVA 
+Fine-grained Perception & FP 
+S-Selection & S-S 
+Instance Reasoning & IR 
+Anaphor Agreement & AA 
+Science and Technology & ST 
+Binding & B 
+Coarse Perception & CP 
+Determiner Noun Agreement & DNA 
+Math & M 
+Irregular Forms & IF 
+Logical Reasoning & LR 
+Person and Object Identification & POI 
+Adjectival Comparisons and Modifications & ACM 
+Other & O 
+Verb Phrases (Intransitive and Transitive) & VP 
+Action and State & AS 
+Noun Phrases and Modifiers & NPM 
+Color Identification & CI 
+Altered POS & APO 
+Verification and Existence & VE 
+Preposition and Locations & PL 
+Identification and Classification & IC 
+Determiner and Quantifier Relationships & DQR 
+Temporal Information & TI 
+Scope and Relations & SR 
+Spatial and Positional Information & SPI 
+Negation and Opposites & NO 
+Reason and Purpose & RP 
+Temporal and Spatial Phrases & TSP 
+Quantity and Counting & QC 
+Physical Relations & PR 
+Spatial Relations & SPR 
+Physical Interactions & PI 
+Agent Properties & AP 
+Material Dynamics & MD 
+Social Properties & SP
+Social Relations & SOR 
+Quantitative Properties & QP
+Social Interactions & SI 
+Physical Dynamics & PD 
+Material Properties & MP 
