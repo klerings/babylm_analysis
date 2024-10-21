@@ -7,7 +7,7 @@ import gc
 import sys
 from transformers import AutoProcessor, AutoTokenizer
 import importlib.util
-from loading_utils import load_blimp, load_mmstar, load_vl_data
+from loading_utils import load_blimp, load_mmstar, load_vl_data, load_flamingo_model, load_git_model
 
  
 def pad_and_concat(
@@ -198,35 +198,6 @@ def run_eval(samples, model, image_processor, tokenizer, mode, task, batch_size=
     final_acc = total_acc / len(samples)
     return final_acc
 
-def load_model(model_dir, model_setting, epoch):
-    # Add the directory containing the modules to the Python path
-    model_path = f"{model_dir}/base_{model_setting}_e{epoch}/"
-    spec = importlib.util.spec_from_file_location("GitForCausalLM", f"{model_path}modeling_git.py")
-    git_module = importlib.util.module_from_spec(spec)
-    sys.modules["git_module"] = git_module
-    spec.loader.exec_module(git_module)
-    GitForCausalLM = git_module.GitForCausalLM
-
-    model = GitForCausalLM.from_pretrained(model_path) 
-    ckpt = torch.load(model_path + "pytorch_model.bin") # TODO: newly initialized for vision encoder: ['pooler.dense.bias', 'pooler.dense.weight']
-    model.load_state_dict(ckpt, strict=False)  
-        
-    # load tokenizer and img processor
-    tokenizer = AutoTokenizer.from_pretrained(model_path, trust_remote_code=True)
-
-    if model_setting.startswith("git"):
-        print("loading processor")
-        image_processor = AutoProcessor.from_pretrained(
-                            model_path,
-                            trust_remote_code=True
-                        )
-    else:
-        print("not loading processor")
-        image_processor = None
-
-    device = torch.device("cuda")
-    model.to(device)
-    return model, image_processor, tokenizer
 
 if __name__ == "__main__":
     subset_size = -1
@@ -234,16 +205,23 @@ if __name__ == "__main__":
 
     txt_only_tasks = ["blimp_filtered", "supplement_filtered"]
     vl_tasks = ["mmstar", "vqa", "winoground"]
-    tasks = vl_tasks + txt_only_tasks
+    #tasks = vl_tasks + txt_only_tasks
+    tasks = ["mmstar"]
 
-    settings = ["git_1vd25_s1"]
+    #settings = ["git_1vd25_s1"]
+    settings = ["flamingo"]
 
     model_dir = "../babylm_GIT/models_for_eval/final_models" # must be changed depending on where trained models are stored
 
     for setting in settings:
-        epoch = 29
-
-        model, image_processor, tokenizer = load_model(model_dir, setting, epoch)
+        if setting == "flamingo":
+            epoch = None
+            model, image_processor, tokenizer = load_flamingo_model()
+        else:
+            epoch = 29
+            model, image_processor, tokenizer = load_git_model(model_dir, setting, epoch)
+        
+        
         if model is None:
             print(f"skipping: {setting} - {epoch}")
             continue
@@ -264,7 +242,7 @@ if __name__ == "__main__":
             torch.cuda.empty_cache()
             gc.collect()
 
-            if setting.startswith("git") and task not in txt_only_tasks:
+            if (setting.startswith("git") or setting == "flamingo") and task not in txt_only_tasks:
 
                 acc_with_img = run_eval(samples, model, image_processor, tokenizer, mode="with_img",  task=task, batch_size=batch_size)
                 print(f"\n{setting} - {epoch} - {task}")

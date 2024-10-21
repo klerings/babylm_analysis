@@ -7,7 +7,7 @@ import torch
 import torch.nn.functional as F
 from datasets import load_dataset, concatenate_datasets
 from string import punctuation
-from transformers import AutoProcessor, AutoTokenizer
+from transformers import AutoProcessor, AutoTokenizer, AutoModelForCausalLM
 from nnsight import NNsight
 import importlib.util
 
@@ -505,7 +505,15 @@ def parse_winoground_qtypes():
             mapping[parts[0].strip()] = parts[1].strip()
     return mapping
 
-def load_model(model_dir, model_setting, epoch):
+def create_nnsight(model):
+    """create nnsight wrapper for transformer model"""
+    
+    nnsight_model = NNsight(model, device_map="cuda")
+    nnsight_model.to("cuda")
+
+    return nnsight_model
+
+def load_git_model(model_dir, model_setting, epoch):
     model_path = f"{model_dir}/base_{model_setting}_e{epoch}/"
     spec = importlib.util.spec_from_file_location("GitForCausalLM", f"{model_path}modeling_git.py")
     git_module = importlib.util.module_from_spec(spec)
@@ -519,9 +527,28 @@ def load_model(model_dir, model_setting, epoch):
         
     # load tokenizer and img processor
     tokenizer = AutoTokenizer.from_pretrained(model_path, trust_remote_code=True)
-    img_processor = AutoProcessor.from_pretrained(model_path,trust_remote_code=True)
-    
-    nnsight_model = NNsight(model, device_map="cuda")
-    nnsight_model.to("cuda")
 
-    return nnsight_model, tokenizer, img_processor
+    if model_setting.startswith("git"):
+        print("loading processor")
+        img_processor = AutoProcessor.from_pretrained(
+                            model_path,
+                            trust_remote_code=True
+                        )
+    else:
+        print("not loading processor")
+        img_processor = None
+
+    model.to("cuda")
+    return model, img_processor, tokenizer
+
+
+def load_flamingo_model():
+    model_path = "babylm/flamingo-2024"
+
+    tokenizer = AutoTokenizer.from_pretrained(model_path, trust_remote_code=True)
+    model = AutoModelForCausalLM.from_pretrained(model_path, trust_remote_code=True)
+    img_processor = AutoProcessor.from_pretrained(model_path,trust_remote_code=True)
+    device = torch.device("cuda")
+    model.to(device)
+
+    return model, img_processor, tokenizer

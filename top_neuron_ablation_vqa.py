@@ -12,8 +12,8 @@ from collections import defaultdict
 import random
 from datasets import load_dataset
 
-from loading_utils import parse_vqa_qtypes, load_model
-from get_top_neurons import extract_submodules
+from loading_utils import parse_vqa_qtypes, load_git_model, create_nnsight
+from get_top_neurons import extract_submodules_git
 
 
 def load_subtask(task_file, top_k):
@@ -80,7 +80,7 @@ def patch_top_neurons(
 
     return total_effect, acc_clean, acc_ablated
 
-def compute_metric_with_ablation(examples, batch_size, top_neurons_mean, task, noimg):
+def compute_metric_with_ablation(nnsight_model, examples, batch_size, top_neurons_mean, task, noimg):
     num_examples = len(examples)
     batches = [examples[i:min(i + batch_size, num_examples)] for i in range(0, num_examples, batch_size)]
     device = "cuda"
@@ -106,16 +106,16 @@ def compute_metric_with_ablation(examples, batch_size, top_neurons_mean, task, n
             clean_answer_idxs = torch.tensor([e['clean_answer'] for e in batch], dtype=torch.long, device=device)
             patch_answer_idxs = torch.tensor([e['patch_answer'] for e in batch], dtype=torch.long, device=device)
 
-            def metric(model):
+            def metric(nnsight_model):
                 
                 return (
-                    torch.gather(model.output.output[:,-1,:], dim=-1, index=patch_answer_idxs.view(-1, 1)).squeeze(-1) - \
-                    torch.gather(model.output.output[:,-1,:], dim=-1, index=clean_answer_idxs.view(-1, 1)).squeeze(-1)
+                    torch.gather(nnsight_model.output.output[:,-1,:], dim=-1, index=patch_answer_idxs.view(-1, 1)).squeeze(-1) - \
+                    torch.gather(nnsight_model.output.output[:,-1,:], dim=-1, index=clean_answer_idxs.view(-1, 1)).squeeze(-1)
                 )
             
-            def get_acc(model):
+            def get_acc(nnsight_model):
 
-                return (torch.gather(model.output.output[:,-1,:], dim=-1, index=clean_answer_idxs.view(-1, 1)).squeeze(-1) > torch.gather(model.output.output[:,-1,:], dim=-1, index=patch_answer_idxs.view(-1, 1)).squeeze(-1)).int()
+                return (torch.gather(nnsight_model.output.output[:,-1,:], dim=-1, index=clean_answer_idxs.view(-1, 1)).squeeze(-1) > torch.gather(nnsight_model.output.output[:,-1,:], dim=-1, index=patch_answer_idxs.view(-1, 1)).squeeze(-1)).int()
         
 
         elif task == "vqa":
@@ -127,19 +127,19 @@ def compute_metric_with_ablation(examples, batch_size, top_neurons_mean, task, n
 
             first_distractor_idxs = torch.tensor([e['distractors'][0] for e in batch], dtype=torch.long, device=device)
 
-            def metric(model):
+            def metric(nnsight_model):
                 # compute difference between correct answer and first distractor
                 # TODO: compute avg difference between correct answer and each distractor
-                #embds_out = model.output.output.save()
+                #embds_out = nnsight_model.output.output.save()
                 
                 return (
-                    torch.gather(model.output.output[:,-1,:], dim=-1, index=first_distractor_idxs.view(-1, 1)).squeeze(-1) - \
-                    torch.gather(model.output.output[:,-1,:], dim=-1, index=clean_answer_idxs.view(-1, 1)).squeeze(-1)
+                    torch.gather(nnsight_model.output.output[:,-1,:], dim=-1, index=first_distractor_idxs.view(-1, 1)).squeeze(-1) - \
+                    torch.gather(nnsight_model.output.output[:,-1,:], dim=-1, index=clean_answer_idxs.view(-1, 1)).squeeze(-1)
                 )
             
-            def get_acc(model):
+            def get_acc(nnsight_model):
 
-                return (torch.gather(model.output.output[:,-1,:], dim=-1, index=clean_answer_idxs.view(-1, 1)).squeeze(-1) > torch.gather(model.output.output[:,-1,:], dim=-1, index=first_distractor_idxs.view(-1, 1)).squeeze(-1)).int()
+                return (torch.gather(nnsight_model.output.output[:,-1,:], dim=-1, index=clean_answer_idxs.view(-1, 1)).squeeze(-1) > torch.gather(nnsight_model.output.output[:,-1,:], dim=-1, index=first_distractor_idxs.view(-1, 1)).squeeze(-1)).int()
         
 
 
@@ -149,24 +149,24 @@ def compute_metric_with_ablation(examples, batch_size, top_neurons_mean, task, n
             correct_idxs = [e["correct_idx"] for e in batch]
             incorrect_idxs = [e["incorrect_idx"] for e in batch]
 
-            def metric(model):
+            def metric(nnsight_model):
                 correct_sent_logits = []
                 incorrect_sent_logits = []
                 for i, (idx, cf_idx) in enumerate(zip(correct_idxs, incorrect_idxs)):
-                    logits = torch.gather(model.output.output[i,:,:], dim=1, index=torch.tensor([idx]).to("cuda")).squeeze(-1) # [1, seq]
-                    cf_logits = torch.gather(model.output.output[i,:,:], dim=1, index=torch.tensor([cf_idx]).to("cuda")).squeeze(-1) # [1, seq]
+                    logits = torch.gather(nnsight_model.output.output[i,:,:], dim=1, index=torch.tensor([idx]).to("cuda")).squeeze(-1) # [1, seq]
+                    cf_logits = torch.gather(nnsight_model.output.output[i,:,:], dim=1, index=torch.tensor([cf_idx]).to("cuda")).squeeze(-1) # [1, seq]
                     correct_sent_logits.append(logits.sum().unsqueeze(0))
                     incorrect_sent_logits.append(cf_logits.sum().unsqueeze(0))
                 correct_sent_logits = torch.cat(correct_sent_logits, dim=0)
                 incorrect_sent_logits = torch.cat(incorrect_sent_logits, dim=0)
                 return incorrect_sent_logits-correct_sent_logits
             
-            def get_acc(model):
+            def get_acc(nnsight_model):
                 correct_sent_logits = []
                 incorrect_sent_logits = []
                 for i, (idx, cf_idx) in enumerate(zip(correct_idxs, incorrect_idxs)):
-                    logits = torch.gather(model.output.output[i,:,:], dim=1, index=torch.tensor([idx]).to("cuda")).squeeze(-1) # [1, seq]
-                    cf_logits = torch.gather(model.output.output[i,:,:], dim=1, index=torch.tensor([cf_idx]).to("cuda")).squeeze(-1) # [1, seq]
+                    logits = torch.gather(nnsight_model.output.output[i,:,:], dim=1, index=torch.tensor([idx]).to("cuda")).squeeze(-1) # [1, seq]
+                    cf_logits = torch.gather(nnsight_model.output.output[i,:,:], dim=1, index=torch.tensor([cf_idx]).to("cuda")).squeeze(-1) # [1, seq]
                     correct_sent_logits.append(logits.sum().unsqueeze(0))
                     incorrect_sent_logits.append(cf_logits.sum().unsqueeze(0))
                 correct_sent_logits = torch.cat(correct_sent_logits, dim=0)
@@ -182,24 +182,24 @@ def compute_metric_with_ablation(examples, batch_size, top_neurons_mean, task, n
             correct_idxs = [e["correct_idx"] for e in batch]
             incorrect_idxs = [e["incorrect_idx"] for e in batch]
 
-            def metric(model):
+            def metric(nnsight_model):
                 correct_sent_logits = []
                 incorrect_sent_logits = []
                 for i, (idx, cf_idx) in enumerate(zip(correct_idxs, incorrect_idxs)):
-                    logits = torch.gather(model.output.output[i,:,:], dim=1, index=torch.tensor([idx]).to("cuda")).squeeze(-1) # [1, seq]
-                    cf_logits = torch.gather(model.output.output[i,:,:], dim=1, index=torch.tensor([cf_idx]).to("cuda")).squeeze(-1) # [1, seq]
+                    logits = torch.gather(nnsight_model.output.output[i,:,:], dim=1, index=torch.tensor([idx]).to("cuda")).squeeze(-1) # [1, seq]
+                    cf_logits = torch.gather(nnsight_model.output.output[i,:,:], dim=1, index=torch.tensor([cf_idx]).to("cuda")).squeeze(-1) # [1, seq]
                     correct_sent_logits.append(logits.sum().unsqueeze(0))
                     incorrect_sent_logits.append(cf_logits.sum().unsqueeze(0))
                 correct_sent_logits = torch.cat(correct_sent_logits, dim=0)
                 incorrect_sent_logits = torch.cat(incorrect_sent_logits, dim=0)
                 return incorrect_sent_logits-correct_sent_logits
             
-            def get_acc(model):
+            def get_acc(nnsight_model):
                 correct_sent_logits = []
                 incorrect_sent_logits = []
                 for i, (idx, cf_idx) in enumerate(zip(correct_idxs, incorrect_idxs)):
-                    logits = torch.gather(model.output.output[i,:,:], dim=1, index=torch.tensor([idx]).to("cuda")).squeeze(-1) # [1, seq]
-                    cf_logits = torch.gather(model.output.output[i,:,:], dim=1, index=torch.tensor([cf_idx]).to("cuda")).squeeze(-1) # [1, seq]
+                    logits = torch.gather(nnsight_model.output.output[i,:,:], dim=1, index=torch.tensor([idx]).to("cuda")).squeeze(-1) # [1, seq]
+                    cf_logits = torch.gather(nnsight_model.output.output[i,:,:], dim=1, index=torch.tensor([cf_idx]).to("cuda")).squeeze(-1) # [1, seq]
                     correct_sent_logits.append(logits.sum().unsqueeze(0))
                     incorrect_sent_logits.append(cf_logits.sum().unsqueeze(0))
                 correct_sent_logits = torch.cat(correct_sent_logits, dim=0)
@@ -210,7 +210,7 @@ def compute_metric_with_ablation(examples, batch_size, top_neurons_mean, task, n
         total_effect, acc_clean, acc_ablated = patch_top_neurons(
                 clean_inputs,
                 img_inputs,
-                model,
+                nnsight_model,
                 top_neurons_mean,
                 metric,
                 get_acc,
@@ -371,8 +371,9 @@ if __name__ == "__main__":
 
     # load and prepare model
     model_dir = "../babylm_GIT/models_for_eval/final_models" # must be changed depending on where trained models are stored
-    model, tokenizer, img_processor = load_model(model_dir, model_setting, epoch)
-    submodules = extract_submodules(model)
+    model, img_processor, tokenizer = load_git_model(model_dir, model_setting, epoch)
+    nnsight_model = create_nnsight(model)
+    submodules = extract_submodules_git(nnsight_model)
     mlps = [submodules[submodule] for submodule in submodules if submodule.startswith("mlp")]
     print("loaded model and submodules")
 
@@ -408,8 +409,8 @@ if __name__ == "__main__":
         noimg_label = [True, False]
         for noimg in noimg_label:
             print(f"noimg: {noimg}")
-            ablation_effect, acc_clean, acc_ablated = compute_metric_with_ablation(subtask_samples, batch_size, top_neurons_mean, task, noimg)
-            ablation_effect_noimg, acc_clean_noimg, acc_ablated_noimg = compute_metric_with_ablation(subtask_samples, batch_size, top_neurons_mean_noimg, task, noimg)
+            ablation_effect, acc_clean, acc_ablated = compute_metric_with_ablation(nnsight_model, subtask_samples, batch_size, top_neurons_mean, task, noimg)
+            ablation_effect_noimg, acc_clean_noimg, acc_ablated_noimg = compute_metric_with_ablation(nnsight_model, subtask_samples, batch_size, top_neurons_mean_noimg, task, noimg)
             
             app = "" if noimg is False else "_noimg"
             all_ablation_effects[subtask+app] = {"ablation_effect": ablation_effect,
