@@ -200,14 +200,14 @@ def run_eval(samples, model, image_processor, tokenizer, mode, task, batch_size=
 
 
 if __name__ == "__main__":
-    subset_size = -1
+    subset_size = -1 # use all samples
     batch_size = 64
 
     txt_only_tasks = ["blimp_filtered", "supplement_filtered"]
     vl_tasks = ["mmstar", "vqa", "winoground"]
-    #tasks = vl_tasks + txt_only_tasks
-    tasks = ["mmstar"]
+    tasks = vl_tasks + txt_only_tasks
 
+    # choose specific GIT model or pretrained Flamingo model
     #settings = ["git_1vd25_s1"]
     settings = ["flamingo"]
 
