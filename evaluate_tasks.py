@@ -211,14 +211,13 @@ if __name__ == "__main__":
     #settings = ["git_1vd25_s1"]
     settings = ["flamingo"]
 
-    model_dir = "../babylm_GIT/models_for_eval/final_models" # must be changed depending on where trained models are stored
-
     for setting in settings:
         if setting == "flamingo":
             epoch = None
             model, image_processor, tokenizer = load_flamingo_model()
         else:
             epoch = 29
+            model_dir = "../babylm_GIT/models_for_eval/final_models" # must be changed depending on where trained models are stored
             model, image_processor, tokenizer = load_git_model(model_dir, setting, epoch)
         
         

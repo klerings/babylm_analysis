@@ -25,19 +25,50 @@ For experiments using the Flamingo architecture, the official BabyLM baseline mo
 ### 1) Benchmarking
 - `evaluate_tasks.py`: 
     - evaluate accuracy of trained model on BabyLM benchmark datasets (BLiMP, VQA, Winoground, and, additionally MMStar) 
-    - without use of the BabyLM evaluation harness for faster and correct inference
-    - writes results to console
+    - results written to console
     - allows exclusion of visual information
     - allows noise instead of visual information 
-    - **Execution:** ``python evaluate_tasks.py`` -> benchmark dataset and evaluated model are specified in main method
+
+```python
+# model to evaluate and benchmark datasets to use are specified in main method
+settings = ["git_1vd25_s1"] # ["flamingo"]
+
+txt_only_tasks = ["blimp_filtered", "supplement_filtered"]
+vl_tasks = ["mmstar", "vqa", "winoground"]
+tasks = vl_tasks + txt_only_tasks
+```
+```bash
+# execution
+$ python evaluate_tasks.py
+```
 
 ### 2) Top Neuron Analysis
 - `get_top_neurons.py`: 
-    - compute mean activations of each MLP 
-    use attribution patching with mean ablation to extract most important neurons per subtask of each benchmark dataset
-    - **Execution Flamingo:** ``python get_top_neurons.py <config_file.json> flamingo``
-    - **Execution GIT:** ``python get_top_neurons.py <config_file.json>``
+    - compute mean activations of each MLP neuron
+    - use attribution patching with mean ablation to extract most important neurons per subtask of each benchmark dataset
     - config files in ``configs/`` contain information on benchmark dataset, GIT model (if GIT is analysed), padding length, etc.
+
+```shell
+# execution for GIT
+$ python get_top_neurons.py <config_file.json>
+
+# execution for Flamingo
+$ python get_top_neurons.py <config_file.json> flamingo
+```
+
+```json
+# Example Config
+{
+    "task": "mmstar",
+    "noimg": false,                 # whether to use visual inputs
+    "num_examples": -1,             # usa all examples
+    "threshold_subtask": 10,        # subtasks with less examples are discarded
+    "model_path": "git_1vd125_s1",  # only relevant when analysing GIT
+    "epoch": 29,                    # only relevant when analysing GIT
+    "batch_size": 4,
+    "pad_len": 64
+}
+```
 
 - `loading_utils.py`: helper script to load datasets for attribution patching
 - `plot_top_neurons.iypnb`: plot heatmaps of shared top neurons across benchmarks
