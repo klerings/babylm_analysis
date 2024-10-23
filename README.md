@@ -56,7 +56,7 @@ $ python get_top_neurons.py <config_file.json>
 $ python get_top_neurons.py <config_file.json> flamingo
 ```
 
-```json
+```python
 # Example Config
 {
     "task": "mmstar",
