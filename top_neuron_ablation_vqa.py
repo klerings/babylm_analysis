@@ -54,6 +54,7 @@ def patch_top_neurons(
     top_neurons_mean,
     metric_fn,
     acc_fn,
+    flamingo,
     metric_kwargs=dict(),
 ):
     tracer_kwargs = {"validate": False, "scan": False}
@@ -67,9 +68,14 @@ def patch_top_neurons(
         with model.trace(clean, **tracer_kwargs), torch.no_grad():
             for layer_id, neurons in top_neurons_mean.items():
                 for neuron_id in neurons:
-                    model.git.encoder.layer[layer_id].intermediate[0].output[
-                        :, :, neuron_id
-                    ] = top_neurons_mean[layer_id][neuron_id]
+                    if flamingo:
+                        model.model.decoder.layers[layer_id].fc1.output[
+                            :, :, neuron_id
+                        ] = top_neurons_mean[layer_id][neuron_id]
+                    else:
+                        model.git.encoder.layer[layer_id].intermediate[0].output[
+                            :, :, neuron_id
+                        ] = top_neurons_mean[layer_id][neuron_id]
             metric_ablated = metric_fn(model, **metric_kwargs).save()
             acc_ablated = acc_fn(model, **metric_kwargs).save()
 
@@ -85,9 +91,14 @@ def patch_top_neurons(
         ), torch.no_grad():
             for layer_id, neurons in top_neurons_mean.items():
                 for neuron_id in neurons:
-                    model.git.encoder.layer[layer_id].intermediate[0].output[
-                        :, :, neuron_id
-                    ] = top_neurons_mean[layer_id][neuron_id]
+                    if flamingo:
+                        model.model.decoder.layers[layer_id].fc1.output[
+                            :, :, neuron_id
+                        ] = top_neurons_mean[layer_id][neuron_id]
+                    else:
+                        model.git.encoder.layer[layer_id].intermediate[0].output[
+                            :, :, neuron_id
+                        ] = top_neurons_mean[layer_id][neuron_id]
             metric_ablated = metric_fn(model, **metric_kwargs).save()
             acc_ablated = acc_fn(model, **metric_kwargs).save()
 
@@ -115,7 +126,7 @@ def compute_metric_with_ablation(
     else:
         print("computing performance WITH vision")
 
-    print("ablating the following neurons:")
+    print("ablating the following neurons per layer:")
     for layer, edict in top_neurons_mean.items():
         print(layer, edict.keys())
     for batch in tqdm(batches):
@@ -175,7 +186,7 @@ def compute_metric_with_ablation(
                         index=clean_answer_idxs.view(-1, 1),
                     ).squeeze(-1)
                     > torch.gather(
-                        nnsight_model.output.output[:, -1, :],
+                        nnsight_model.output.logits[:, -1, :],
                         dim=-1,
                         index=first_distractor_idxs.view(-1, 1),
                     ).squeeze(-1)
@@ -201,6 +212,7 @@ def compute_metric_with_ablation(
             top_neurons_mean,
             metric,
             get_acc,
+            flamingo,
             metric_kwargs=dict(),
         )
 
@@ -393,9 +405,7 @@ if __name__ == "__main__":
 
     # retrieve precomputed mean activation files
     mean_act_files = []
-    prefix = (
-        f"{task}_{model_prefix}_n{num_examples if num_examples != -1 else 'all'}{'_noimg' if noimg else ''}"
-    )
+    prefix = f"{task}_{model_prefix}_n{num_examples if num_examples != -1 else 'all'}{'_noimg' if noimg else ''}"
     for file in os.listdir("mean_activations/"):
         if file.startswith(prefix + "_mean_acts"):
             mean_act_files.append(f"mean_activations/{file}")
@@ -418,10 +428,10 @@ if __name__ == "__main__":
         # for each subtask, ablated its own neurons and the neurons of its countertask without vision
 
         # get top neurons
-        top_neurons_file = f"data/top_neurons/vqa/vqa_{model_prefix}_nall/{subtask_dense}_top_neurons.pkl"
+        top_neurons_file = f"results/top_neurons/vqa/vqa_{model_prefix}_nall/{subtask_dense}_top_neurons.pkl"
         top_neurons = load_subtask(top_neurons_file, top_k=100)
 
-        top_neurons_file_noimg = f"data/top_neurons/vqa/vqa_{model_prefix}_nall_noimg/{subtask_dense}_top_neurons.pkl"
+        top_neurons_file_noimg = f"results/top_neurons/vqa/vqa_{model_prefix}_nall_noimg/{subtask_dense}_top_neurons.pkl"
         top_neurons_noimg = load_subtask(top_neurons_file_noimg, top_k=100)
 
         # get their top activations

@@ -76,8 +76,18 @@ $ python get_top_neurons.py <config_file.json> flamingo
 
 ### 3) Neuron Ablation
 - `top_neuron_ablation_vqa.py`: 
-    - replace top neurons per VQA subtask with mean activations across dataset and evaluate clean vs ablated performance
+    - replace top neurons per subtask with mean activations across dataset and evaluate clean vs ablated performance
     - provide config name as additional command line argument to specify hyperparameters
+    - *! currently only implemented for VQA*
+
+```shell
+# execution for GIT
+$ python top_neuron_ablation_vqa.py <config_file.json>
+
+# execution for Flamingo
+$ python top_neuron_ablation_vqa.py <config_file.json> flamingo
+```
+
 - `analyse_ablations.ipynb`: plot patching effect of ablating top neurons with their mean activation
 - `data/ablation_top_neurons/vqa/`: results as pickle files
 
