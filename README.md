@@ -15,6 +15,13 @@ For experiments using the Flamingo architecture, the official BabyLM baseline mo
 
 - [babylm2024-flamingo](https://huggingface.co/babylm/flamingo-2024)
 
+For attribution patching and neuron ablation, a small modification to the internal layer representation of Flamingo is necessary to be able to access its layers properly. In `transformers/models/opt/modeling_opt.py`
+
+```
+# in the forward() function of OPTDecoderLayer, comment out the following line that reduces the dimensionalities
+
+hidden_states = hidden_states.reshape(-1, hidden_states.size(-1))
+```
 
 ## Prerequisites
 - **Data Download:** download evaluation benchmarks and place them into a folder named ``data/`` (see [BabyLM Evaluation Pipeline](https://github.com/babylm/evaluation-pipeline-2024) for detailed downloading steps)
